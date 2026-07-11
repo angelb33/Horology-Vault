@@ -19,6 +19,7 @@ struct VaultGridView: View {
 
     @Query private var watches: [Watch]
     @State private var sortOption: SortOption = .brand
+    @State private var isAddingWatch = false
 
     private let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
 
@@ -69,6 +70,16 @@ struct VaultGridView: View {
                     }
                     .pickerStyle(.menu)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isAddingWatch = true
+                    } label: {
+                        Label("Add Watch", systemImage: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $isAddingWatch) {
+                AddWatchView()
             }
         }
     }

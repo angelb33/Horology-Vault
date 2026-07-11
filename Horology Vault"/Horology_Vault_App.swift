@@ -16,6 +16,7 @@ struct Horology_Vault_App: App {
             Strap.self,
             ServiceRecord.self,
             UserProfile.self,
+            WishlistItem.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

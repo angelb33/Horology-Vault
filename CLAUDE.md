@@ -70,25 +70,36 @@ shell-quoting issues above.
 
 - **UI framework:** SwiftUI, single multiplatform target shared across iOS, macOS, and visionOS
   (`SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx xros xrsimulator`, `TARGETED_DEVICE_FAMILY = 1,2,7`).
-  `ContentView.swift` is now a thin wrapper that just renders `VaultGridView`, which owns its own
-  `NavigationStack` and pushes `WatchDetailView` via `.navigationDestination(for: Watch.self)`. Platform
-  differences are handled inline with `#if os(macOS)` / `#if os(iOS)` where needed (e.g. the
-  `UIImage`/`NSImage` bridging in `WatchCardView.swift`, `.navigationBarTitleDisplayMode` in
-  `WatchDetailView.swift`) rather than separate platform targets — keep new platform-specific UI on this
-  same pattern.
-- **View hierarchy so far:** `VaultGridView` (grid of watches with brand/date/case-size sorting, empty
-  state via `ContentUnavailableView`) → `WatchCardView` (photo thumbnail + service-due badge) →
-  `WatchDetailView` (Form with Overview, Straps, Service History incl. `AccuracyChartView` line chart via
-  `Charts`, and placeholder Wear Log / Provenance / Fit Preview sections).
+  `ContentView.swift` hosts the app's root `NavigationSplitView`: a sidebar (`ContentView.Section` — Vault,
+  Wishlist, Maintenance, Settings) drives which top-level view renders in the detail column. Each top-level
+  view (`VaultGridView`, `WishlistView`, `MaintenanceView`, `SettingsView`) owns its own internal
+  `NavigationStack` for push navigation within that section (e.g. `VaultGridView` and `MaintenanceView` both
+  push `WatchDetailView` via `.navigationDestination(for: Watch.self)`) — this is the standard nested-stack
+  pattern for `NavigationSplitView` detail columns, not a leftover to clean up. Platform differences are
+  handled inline with `#if os(macOS)` / `#if os(iOS)` where needed (e.g. the `UIImage`/`NSImage` bridging in
+  `WatchCardView.swift`, `.navigationBarTitleDisplayMode` in `WatchDetailView.swift`,
+  `.navigationSplitViewColumnWidth` on the sidebar) rather than separate platform targets — keep new
+  platform-specific UI on this same pattern. The V2 sidebar sections (Strap Shop, Market Value, Community)
+  from the plan are intentionally not added yet — they stay hidden until the subscription ships.
+- **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,
+  empty state via `ContentUnavailableView`, `+` toolbar button sheets `AddWatchView`) → `WatchCardView`
+  (photo thumbnail + service-due badge) → `WatchDetailView` (Form with Overview, Straps, Service History
+  incl. `AccuracyChartView` line chart via `Charts`, and placeholder Wear Log / Provenance / Fit Preview
+  sections). Sibling sections: `WishlistView` (list of `WishlistItem`, price-alert toggle present but
+  disabled pending V2), `MaintenanceView` (watches split into Service Due / Up to Date via
+  `Watch.isServiceDue`, rows push into `WatchDetailView`), `SettingsView` (wrist profile editing, stubbed/
+  disabled Data and Purchase sections pending CSV/backup and StoreKit work).
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
-  `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self]`. `Watch` cascades-deletes its
-  `ServiceRecord`s and nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches
-  more than 3 years past their last (or acquisition) date. The monetization plan calls for an
-  `Entitlements` table driving all feature gating (`is_lifetime_unlocked`, `subscription_status`) that the
-  UI reads but never writes directly — writes only happen from the StoreKit transaction listener; this
-  table does not exist yet. When adding new `@Model` types, register them in the `Schema([...])` array in
-  `Horology_Vault_App.swift`.
+  `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self]`. `Watch`
+  cascades-deletes its `ServiceRecord`s and nullifies its `Strap` relationship on delete; `Watch.isServiceDue`
+  flags watches more than 3 years past their last (or acquisition) date. `AddWatchView`'s save action
+  requires case diameter, lug-to-lug, and lug width to all be positive (not just brand/model non-empty) —
+  those specs are read-only everywhere else in the app once a watch is created, so bad data saved there
+  can't currently be corrected. The monetization plan calls for an `Entitlements` table driving all feature
+  gating (`is_lifetime_unlocked`, `subscription_status`) that the UI reads but never writes directly — writes
+  only happen from the StoreKit transaction listener; this table does not exist yet. When adding new
+  `@Model` types, register them in the `Schema([...])` array in `Horology_Vault_App.swift`.
 - **Test frameworks:** unit tests (`Horology Vault"Tests/`) use the new **Swift Testing** framework
   (`import Testing`, `@Test`, `#expect`), not XCTest. UI tests (`Horology Vault"UITests/`) use XCTest/XCUITest.
   Match whichever framework the target file already uses.
