@@ -4,15 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-This is a brand-new Xcode SwiftUI + SwiftData multiplatform app scaffold (currently just the default
-Xcode template: `Item.swift`, `ContentView.swift`, `Horology_Vault_App.swift`). No feature code has been
-written yet. The intended product and technical design live in `horology_vault_monetization_plan.md` at
-the repo root — read it before implementing features, since it defines the planned data model (`Watches`,
-`Straps`, `ServiceHistory`, `WearLog`, `Wishlist`, `ProvenanceDocs`, `Entitlements`), the entitlement/paywall
-architecture, the V1 (one-time purchase, fully local/offline) vs. V2 (subscription, needs backend services)
-feature split, the planned SwiftUI view hierarchy, and the StoreKit 2 purchase flow. Treat that doc as the
-source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
-architecture from scratch.
+The Xcode default template has been replaced with the start of the real app. The SwiftData model layer
+(`Watch.swift`, `Strap.swift`, `ServiceRecord.swift`, `UserProfile.swift`) and a first pass at the Vault UI
+(`VaultGridView.swift`, `WatchCardView.swift`, `WatchDetailView.swift`, `AccuracyChartView.swift`) now exist;
+`Item.swift` (the scaffold model) has been deleted and `ContentView.swift` now just hosts `VaultGridView`.
+`WearLog`, `Wishlist`, `ProvenanceDocs`, and `Entitlements` from the plan are not yet modeled — the detail
+view has placeholder sections for wear log and provenance. The intended product and technical design live
+in `horology_vault_monetization_plan.md` at the repo root — read it before implementing features, since it
+defines the full planned data model (`Watches`, `Straps`, `ServiceHistory`, `WearLog`, `Wishlist`,
+`ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1 (one-time purchase, fully
+local/offline) vs. V2 (subscription, needs backend services) feature split, the planned SwiftUI view
+hierarchy, and the StoreKit 2 purchase flow. Treat that doc as the source of truth for "why" a feature is
+scoped the way it is; implement against it rather than re-deriving architecture from scratch.
 
 ## ⚠️ Naming gotcha: embedded quote character
 
@@ -67,14 +70,25 @@ shell-quoting issues above.
 
 - **UI framework:** SwiftUI, single multiplatform target shared across iOS, macOS, and visionOS
   (`SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx xros xrsimulator`, `TARGETED_DEVICE_FAMILY = 1,2,7`).
-  Platform differences are handled inline with `#if os(macOS)` / `#if os(iOS)` (see the
-  `NavigationViewWrapper` split in `ContentView.swift`: `NavigationSplitView` on macOS, plain content on iOS)
-  rather than separate platform targets — keep new platform-specific UI on this same pattern.
+  `ContentView.swift` is now a thin wrapper that just renders `VaultGridView`, which owns its own
+  `NavigationStack` and pushes `WatchDetailView` via `.navigationDestination(for: Watch.self)`. Platform
+  differences are handled inline with `#if os(macOS)` / `#if os(iOS)` where needed (e.g. the
+  `UIImage`/`NSImage` bridging in `WatchCardView.swift`, `.navigationBarTitleDisplayMode` in
+  `WatchDetailView.swift`) rather than separate platform targets — keep new platform-specific UI on this
+  same pattern.
+- **View hierarchy so far:** `VaultGridView` (grid of watches with brand/date/case-size sorting, empty
+  state via `ContentUnavailableView`) → `WatchCardView` (photo thumbnail + service-due badge) →
+  `WatchDetailView` (Form with Overview, Straps, Service History incl. `AccuracyChartView` line chart via
+  `Charts`, and placeholder Wear Log / Provenance / Fit Preview sections).
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
-  `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. The monetization plan calls for an
+  `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
+  `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self]`. `Watch` cascades-deletes its
+  `ServiceRecord`s and nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches
+  more than 3 years past their last (or acquisition) date. The monetization plan calls for an
   `Entitlements` table driving all feature gating (`is_lifetime_unlocked`, `subscription_status`) that the
-  UI reads but never writes directly — writes only happen from the StoreKit transaction listener. When
-  adding new `@Model` types, register them in the `Schema([...])` array in `Horology_Vault_App.swift`.
+  UI reads but never writes directly — writes only happen from the StoreKit transaction listener; this
+  table does not exist yet. When adding new `@Model` types, register them in the `Schema([...])` array in
+  `Horology_Vault_App.swift`.
 - **Test frameworks:** unit tests (`Horology Vault"Tests/`) use the new **Swift Testing** framework
   (`import Testing`, `@Test`, `#expect`), not XCTest. UI tests (`Horology Vault"UITests/`) use XCTest/XCUITest.
   Match whichever framework the target file already uses.

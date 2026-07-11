@@ -12,7 +12,10 @@ import SwiftData
 struct Horology_Vault_App: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Watch.self,
+            Strap.self,
+            ServiceRecord.self,
+            UserProfile.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
