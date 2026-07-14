@@ -1,5 +1,46 @@
 # Session Log
 
+## 2026-07-13 — Session 2
+
+### Accomplished this session
+
+- Planning-only session, no Swift code touched: reviewed `horology_vault_market_research.md` (already in
+  the repo from the prior session) and folded its recommendations into
+  `horology_vault_monetization_plan.md`.
+- Updated the top revision note to mention the new Section 10 and explain why Sections 1, 4, and 9 changed.
+- Added a "Competitive position" column to both Section 1 feature tables: Fit Calculator and Strap
+  Recommendations w/ affiliate links tagged as genuine differentiators (no competitor found offering
+  either); Vault, Service History, WearLog, Wishlist, Provenance, Strap Inventory, Maintenance reminders,
+  and import/export tagged as table stakes; Cloud Sync flagged as a risk rather than a differentiator since
+  WatchGrid and Watch Collector already give iCloud/CloudKit sync away free; service center directory
+  tagged as a minor niche (only Bezelio is adjacent).
+- Reordered Section 4's V2 rollout plan: the strap pricing proxy / Strap Recommendations backend service
+  now ships first among the three V2 backend services (ahead of the Market Value feed and the Sync/backup
+  store), with a suggestion to validate it as a cheap hand-curated affiliate-link MVP before investing in
+  full retailer scraping/API integration. Reordered the subscription-gated screen rollout to: Strap
+  Recommendations, Market Value, Wishlist price alerts, Cloud Sync, Community, Insurance PDF export.
+- Added two new bullets to Section 9 (Open Decisions): whether Cloud Sync can justify a subscription at all
+  given free competitor offerings, and whether to MVP the strap pricing proxy before the full build.
+- Added a brand-new Section 10, "Competitive Positioning (Market Research, 2026-07-13)", summarizing the
+  market research doc's bottom line (crowded but winnable category; Fit Calculator and Strap
+  Recommendations are the only two genuinely unclaimed features; the one-time-purchase pricing pattern
+  observed across competitors validates this plan's hybrid model; risk of shipping "just another tracker")
+  and explicitly listing the three resulting plan changes above.
+- Confirmed no changes were needed to Section 6 (the ordered V1 implementation phases) — this update is
+  scoped to V2/subscription positioning and doesn't affect the local-only V1 work still in progress (Phases
+  5–9 remain not started). Also confirmed CLAUDE.md's existing references to the plan's Section 5/6 are
+  still accurate as-is, since Section 10 was appended after Section 9 rather than inserted, so no
+  renumbering occurred and no CLAUDE.md edit was needed.
+
+### Pending / next steps
+
+- Everything from the prior 2026-07-13 session's "Pending / next steps" still applies unchanged: Phases
+  5–9 of Section 6 (maintenance reminders, data import/export, service center directory,
+  Entitlements/StoreKit 2, tests) are not started.
+- New open decisions from this session's Section 9 additions: whether Cloud Sync can carry a subscription
+  on its own given free competitor sync, and whether to build a cheap hand-curated MVP of Strap
+  Recommendations before investing in the full retailer scraping/API-driven pricing proxy.
+
 ## 2026-07-13
 
 ### Accomplished this session

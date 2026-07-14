@@ -1,39 +1,43 @@
 # Horology Vault — Hybrid Monetization Plan
 
 > **Revision note (2026-07-13):** Sections 1–4 below are the original product/technical plan and are
-> unchanged. Sections 5 and 6 were added 2026-07-12 after reviewing the codebase against this plan, and are
-> updated again as of 2026-07-13 now that Phases 1–4 of Section 6's plan have shipped. What used to be
-> Sections 5–7 (SwiftUI View Hierarchy, StoreKit 2 Purchase Flow, Open Decisions) are renumbered to 7–9 to
-> make room. Read Section 5 for what's actually built today and Section 6 for the ordered plan to close the
-> gap with V1 scope.
+> unchanged in substance, though Section 1's tables now flag each feature's competitive position (table
+> stakes vs. genuine differentiator). Sections 5 and 6 were added 2026-07-12 after reviewing the codebase
+> against this plan, and are updated again as of 2026-07-13 now that Phases 1–4 of Section 6's plan have
+> shipped. What used to be Sections 5–7 (SwiftUI View Hierarchy, StoreKit 2 Purchase Flow, Open Decisions)
+> are renumbered to 7–9 to make room. A new **Section 10, Competitive Positioning**, was added 2026-07-13
+> summarizing `horology_vault_market_research.md`'s findings, which also drove the reordering of Section 4's
+> V2 rollout and two new entries in Section 9's open decisions. Read Section 5 for what's actually built
+> today, Section 6 for the ordered plan to close the V1 gap, and Section 10 for why the roadmap is
+> sequenced the way it is.
 
 ## 1. Feature-to-Tier Table
 
 ### One-Time Purchase (core app — local-only, zero marginal cost per user)
 
-| Feature | Why it's core |
-|---|---|
-| The Vault (dashboard/collection grid) | Pure local read of the Watches table |
-| Fit Calculator | Local geometry math, no external data |
-| Strap Inventory + lug-width cross-reference | Local read/write against owned data |
-| Service History log + accuracy drift chart | Local read/write, no external data |
-| Wear tracking & rotation stats | Local read/write |
-| Maintenance reminders | Local device notifications — no server needed to schedule them |
-| Provenance/authentication log (receipts, warranty, photos) | Local file storage |
-| Data import/export + encrypted local backup | Local file I/O |
-| Wishlist (static list, no live pricing) | Just a local table, no monitoring |
-| Authorized service center directory | Static dataset, refreshed via app updates rather than a live feed |
+| Feature | Why it's core | Competitive position (see §10) |
+|---|---|---|
+| The Vault (dashboard/collection grid) | Pure local read of the Watches table | Table stakes |
+| Fit Calculator | Local geometry math, no external data | **Differentiator** — no competitor found does geometric fit visualization |
+| Strap Inventory + lug-width cross-reference | Local read/write against owned data | Table stakes (Klokker already filters existing straps by lug width) |
+| Service History log + accuracy drift chart | Local read/write, no external data | Table stakes |
+| Wear tracking & rotation stats | Local read/write | Table stakes |
+| Maintenance reminders | Local device notifications — no server needed to schedule them | Table stakes |
+| Provenance/authentication log (receipts, warranty, photos) | Local file storage | Table stakes |
+| Data import/export + encrypted local backup | Local file I/O | Table stakes |
+| Wishlist (static list, no live pricing) | Just a local table, no monitoring | Table stakes |
+| Authorized service center directory | Static dataset, refreshed via app updates rather than a live feed | Niche — only Bezelio (service-log-only) is adjacent, nobody bundles a directory |
 
 ### Optional Subscription (needs an always-on backend — cost scales with usage)
 
-| Feature | Why it needs a subscription |
-|---|---|
-| Strap recommendations w/ live pricing + affiliate links | Requires scraping/API calls to retailers, kept fresh continuously |
-| Market value tracking | Needs a live feed of auction/marketplace comps |
-| Wishlist price alerts | Needs a background job polling prices |
-| Cross-device cloud sync/backup | Requires hosted storage + sync infra |
-| Community showcase profile / trade board | Requires hosted, moderated, always-on service |
-| PDF insurance appraisal with live valuation | Depends on the market-value feed above |
+| Feature | Why it needs a subscription | Competitive position (see §10) |
+|---|---|---|
+| Strap recommendations w/ live pricing + affiliate links | Requires scraping/API calls to retailers, kept fresh continuously | **Differentiator** — no competitor offers a retailer shopping/discovery feature; also the clearest monetization angle beyond the app price |
+| Market value tracking | Needs a live feed of auction/marketplace comps | Table stakes — several competitors already do a manual version free |
+| Wishlist price alerts | Needs a background job polling prices | Not directly validated by research, but a natural extension of the table-stakes wishlist feature |
+| Cross-device cloud sync/backup | Requires hosted storage + sync infra | **Risk, not a differentiator** — WatchGrid and Watch Collector already give iCloud/CloudKit sync away free, so this alone probably can't justify a subscription (see §10 and §9) |
+| Community showcase profile / trade board | Requires hosted, moderated, always-on service | Not validated by research — no competitor deep-dive covered this |
+| PDF insurance appraisal with live valuation | Depends on the market-value feed above | Not validated by research |
 
 **Rule of thumb used for the split:** if a feature only ever touches data the user already owns on their device, it belongs in the one-time tier. If it depends on data that changes without the user's input (prices, comps, other users' posts), it belongs in the subscription tier, because that's the piece that costs you money to keep running.
 
@@ -121,9 +125,20 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 
 ### V2 — Add the subscription (later, once V1 has traction)
 - Add a StoreKit 2 auto-renewable subscription product; entitlement code extends the existing check rather than being rewritten.
-- Stand up the three backend services from Section 2.4 (strap pricing proxy, market value feed, sync/backup store) — build these only when subscription revenue is about to fund them.
-- Activate the `sync_id` / `updated_at` columns already reserved in the schema and turn on the sync engine.
-- Turn on the subscription-gated screens: Strap Recommendations, Market Value, Wishlist price alerts, Cloud Sync, Community, Insurance PDF export.
+- Build the **strap pricing proxy** (Section 2.4 item 1) first among the three backend services, and ship
+  it before Market Value or Sync/Community — per Section 10's competitive review, Strap Recommendations is
+  the one subscription feature with no competitor equivalent, so it should headline the subscription pitch
+  rather than launch alongside features that read as parity with existing free tools. Consider a
+  cheaply-validated MVP first (a small hand-curated affiliate link set, refreshed manually) before investing
+  in full retailer scraping/API integration.
+- Stand up the remaining backend services from Section 2.4 (market value feed, sync/backup store) after the
+  strap feature is proven — build these only when subscription revenue is about to fund them.
+- Activate the `sync_id` / `updated_at` columns already reserved in the schema and turn on the sync engine —
+  but see Section 10/9's note that WatchGrid and Watch Collector already give iCloud/CloudKit sync away
+  free, so Cloud Sync likely can't carry the subscription's value proposition on its own and should be
+  framed as a bundled perk rather than a pillar feature.
+- Turn on the subscription-gated screens in this priority order: Strap Recommendations, then Market Value,
+  then Wishlist price alerts, then Cloud Sync, then Community, then Insurance PDF export.
 - Existing V1 customers see this as a new optional upsell in an app update — no migration, no breaking changes to their local data.
 
 ## 5. Implementation Status (as of 2026-07-13)
@@ -334,3 +349,55 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 - Whether Wishlist price alerts ship at launch of V2 or as a fast-follow (it's the smallest of the subscription features and could be a good "prove the subscription is worth it" hook).
 - Whether the service-center directory should eventually move from bundled/static to a live-updated dataset (would shift it into the subscription bucket).
 - Whether/when to expand beyond Apple to Android/Windows, and if so, whether that means a Flutter rewrite or native ports.
+- **(Added 2026-07-13, from market research)** Whether Cloud Sync can be a paid subscription feature at
+  all, given WatchGrid and Watch Collector already offer iCloud/CloudKit sync for free — it may need to
+  ship free in V1 or as a bundled perk of the subscription rather than a pillar reason to subscribe.
+- **(Added 2026-07-13, from market research)** Whether to build a minimal Strap Recommendations MVP (a
+  small hand-curated set of affiliate links, refreshed manually) before investing in the full
+  scraping/API-driven pricing proxy from Section 2.4 — validates the app's clearest differentiator cheaply
+  before committing ongoing backend cost to it.
+
+## 10. Competitive Positioning (Market Research, 2026-07-13)
+
+Summarizes `horology_vault_market_research.md` at the repo root — read that document for the full
+competitor-by-competitor detail (WatchGrid, Klokker, Watch Collector, Watch Collection Tracker, iCollect
+Everything, and ~20 more apps surveyed but not deep-dived).
+
+**Bottom line:** the watch-collection-tracker category is real but crowded — a dozen-plus actively
+maintained apps exist, almost all solo-developer-built, but none has run away with the category (ratings
+volumes are small across the board). Two features from this plan — the **Fit Calculator** and **Strap
+recommendations with live pricing/affiliate links** — do not appear in any competitor found. Viability
+depends on executing those two well, not on the category being underserved.
+
+**What's table stakes, not a differentiator:** wear tracking with a calendar/rotation view, service/accuracy
+history, manual market value tracking, wishlist, photo storage, and — notably — **free** cloud sync
+(iCloud/CloudKit, offered at no charge by WatchGrid and Watch Collector). This plan's Vault, Service
+History, WearLog, Wishlist, and Provenance features map directly onto this baseline: necessary to be
+competitive, but not why anyone would choose this app over Klokker or WatchGrid. Section 1's tables above
+are now annotated feature-by-feature with this distinction.
+
+**What's genuinely unclaimed:** the Fit Calculator (comparing lug-to-lug against the user's own wrist
+geometry — Klokker only has a lug-width *filter* against the user's existing strap inventory, not
+geometric fit visualization) and Strap Recommendations with affiliate links (no competitor offers retailer
+shopping/discovery for straps at all). These are this plan's only two genuinely unclaimed features and its
+clearest monetization angle beyond the app price itself.
+
+**Pricing pattern validates this plan's hybrid model:** every dedicated competitor with a paywall uses a
+one-time unlock ($3.99–$12.99), not a subscription. This confirms collectors in this niche expect and
+respond to one-time pricing — a subscription-only app would likely underperform on conversion. The
+one-time-core-plus-optional-subscription split in Sections 1–2 fits the observed market better than either
+pure model.
+
+**Risk:** shipping "just another watch tracker" without the Fit Calculator and Strap Recommendations
+executed distinctly means competing on parity against apps (WatchGrid, Klokker especially) that already
+have a head start and loyal small communities.
+
+**Resulting changes made to this plan:**
+1. Section 1's tables now carry a "Competitive position" column, tagging Fit Calculator and Strap
+   Recommendations as differentiators and flagging Cloud Sync as a risk rather than a subscription pillar.
+2. Section 4's V2 rollout now builds and ships Strap Recommendations first among the three backend
+   services, ahead of Market Value and Sync/Community, with an MVP-first suggestion to validate it cheaply.
+3. Section 9 gained two new open decisions: whether Cloud Sync can carry a subscription on its own, and
+   whether to MVP the strap pricing proxy before building the full scraping/API integration.
+- No changes were made to Section 6's V1 phase ordering (Phases 5–9) — the market research is about V2/
+  subscription positioning and doesn't change what's needed to finish the local-only V1 feature set.
