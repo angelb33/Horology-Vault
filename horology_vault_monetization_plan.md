@@ -202,12 +202,9 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–8 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
-import/export & backup, Service center directory, Entitlements/StoreKit 2) are complete — see 5.1.
-Remaining gap:
-
-1. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
-   `Horology VaultTests` still only has the example Swift Testing case.
+Phases 1–9 of Section 6 — the entire ordered V1 plan — are complete. Nothing remains against this plan's
+V1 scope; the only work left in this document is V2 (Section 4's subscription rollout, Section 10's
+reordering of it) once V1 has real user traction.
 
 ## 6. Next Implementation Steps (Ordered Plan)
 
@@ -355,13 +352,35 @@ land.
   locked, and a working "Restore Purchase" button, plus an inline error line if `purchaseManager.lastError`
   is set.
 
-### Phase 9 — Tests
-Add coverage incrementally alongside each phase above rather than as one giant batch at the end, prioritizing:
-- Fit Calculator math (Phase 4) — this is pure geometry, the highest-value thing to unit test.
-- `Entitlements`/`PurchaseManager` gating logic (Phase 8) — a broken paywall either leaks the paid feature
-  set or locks out a paying customer, both expensive mistakes to ship silently.
-- Model invariants that already exist but are untested (e.g. `Watch.isServiceDue`, cascade-delete behavior
-  on `Watch` → `ServiceRecord`/`WearLog`/`ProvenanceDocs`).
+### Phase 9 — Tests ✅ Done (2026-07-14)
+Landed as one batch against the finished V1 feature set rather than incrementally per-phase as originally
+suggested, since the earlier phases shipped before this plan's own testing discipline caught up with them.
+- **Fit Calculator math:** the fit-check logic (`wristWidthMM`, `overhangMM`, `fits`) was pulled out of
+  `FitDiagramView`'s private computed properties — not unit-testable in place, since a SwiftUI View's
+  private members aren't visible to a separate test target — into a new pure `FitCalculator.swift`
+  (`FitCalculator.evaluate(lugToLugMM:wristTopWidthCM:) -> Result`). `FitDiagramView` now just calls it via
+  one `fitResult` computed property; rendering behavior is unchanged. `FitCalculatorTests.swift` covers the
+  exact-fit boundary, watch-smaller-than-wrist, watch-larger-than-wrist (verifying overhang amount), and
+  zero/negative edge cases.
+- **Entitlements/PurchaseManager gating logic:** `PurchaseManager`'s insert-or-update persistence logic was
+  extracted from the private `reconcileEntitlements()` into `static func updateEntitlementsRecord(unlocked:in:now:)`
+  — callable directly against an in-memory `ModelContext` without touching StoreKit, so the part that
+  actually decides whether the paid feature set is unlocked can be tested in isolation. Live StoreKit calls
+  (`Product.products(for:)`, `Transaction.currentEntitlements`, `product.purchase()`) aren't meaningfully
+  unit-testable without Apple's `StoreKitTest`/`SKTestSession` — `EntitlementsTests.swift` covers the
+  reconciliation/gating logic that's actually reachable (insert-vs-update-in-place with no duplicate rows,
+  locking on revoke/refund, the UI's `entitlements.first?.isLifetimeUnlocked ?? false` read before/after a
+  simulated purchase, `SubscriptionStatus` round-tripping, `configure(modelContext:)` idempotency);
+  full end-to-end purchase-flow testing via `SKTestSession(configurationFileNamed: "Configuration")` against
+  the existing `Configuration.storekit` is a reasonable fast-follow, not done here.
+- **Model invariants:** `WatchModelTests.swift` covers `Watch.serviceDueDate`/`isServiceDue` (fallback to
+  `acquisitionDate`, most-recent `ServiceRecord`, the 3-year boundary, the due clock resetting after a new
+  service), cascade-delete of `ServiceRecord`/`WearLog`/`ProvenanceDoc` (individually and together), and
+  nullify-not-delete of an attached `Strap` on watch deletion — all against an in-memory `ModelContainer`.
+- 33 tests total (32 new + the original Xcode-scaffold `example()` case), all passing via
+  `xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault" -destination 'platform=macOS' test`.
+  No production bugs were found in the process — only a mistake in one test's own chosen input values,
+  caught and fixed by actually running the suite rather than assuming it would pass.
 
 ## 7. SwiftUI View Hierarchy (V1)
 

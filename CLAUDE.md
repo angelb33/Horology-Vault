@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project state
 
 The Xcode default template has been replaced with the real app, and V1's local-only feature set (Section 1
-of the monetization plan) is now mostly built out. The SwiftData model layer (`Watch.swift`, `Strap.swift`,
+of the monetization plan) is now fully built out — Phases 1–9 of Section 6's ordered plan are all done. The
+SwiftData model layer (`Watch.swift`, `Strap.swift`,
 `ServiceRecord.swift`, `UserProfile.swift`, `WishlistItem.swift`, `WearLog.swift`, `ProvenanceDoc.swift`) and
 the Vault UI (`VaultGridView.swift`, `WatchCardView.swift`, `WatchDetailView.swift`, `AccuracyChartView.swift`,
 `FitDiagramView.swift`, `FitCalculatorView.swift`) now exist; `Item.swift` (the scaffold model) has been
@@ -27,9 +28,10 @@ features, since it defines the full planned data model (`Watches`, `Straps`, `Se
 `Wishlist`, `ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1 (one-time
 purchase, fully local/offline) vs. V2 (subscription, needs backend services) feature split, the planned
 SwiftUI view hierarchy, and the StoreKit 2 purchase flow. Section 5 of that doc tracks exactly what's built
-vs. outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–8 (core
+vs. outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–9 (core
 CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data import/export & backup, Service
-center directory, Entitlements/StoreKit 2) are done; only Phase 9 (tests) remains. Treat that doc as the
+center directory, Entitlements/StoreKit 2, tests) are all done; nothing remains against this plan's V1
+scope. Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -165,7 +167,13 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   `Horology_Vault_App.swift`.
 - **Test frameworks:** unit tests (`Horology VaultTests/`) use the new **Swift Testing** framework
   (`import Testing`, `@Test`, `#expect`), not XCTest. UI tests (`Horology VaultUITests/`) use XCTest/XCUITest.
-  Match whichever framework the target file already uses.
+  Match whichever framework the target file already uses. `FitCalculatorTests.swift`, `EntitlementsTests.swift`,
+  and `WatchModelTests.swift` cover the Phase 9 priorities (Fit Calculator math, Entitlements/PurchaseManager
+  gating, `Watch` service-due/cascade-delete invariants) against in-memory `ModelContainer`s — follow that
+  pattern for new model-layer tests rather than hitting the real on-disk store. `FitCalculator.swift` and
+  `PurchaseManager.updateEntitlementsRecord(unlocked:in:now:)` exist specifically because their logic used to
+  be private/inline and untestable from a separate target — when adding new business logic, consider
+  whether it needs the same kind of extraction up front rather than retrofitting it later.
 - **Deployment target:** iOS/macOS 26.5 (`IPHONEOS_DEPLOYMENT_TARGET` / `MACOSX_DEPLOYMENT_TARGET = 26.5`),
   Swift 5.0 language mode.
 - **Monetization/entitlement design:** see `horology_vault_monetization_plan.md` for the full picture. Key
