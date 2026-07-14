@@ -17,17 +17,19 @@ Architecture below), so Maintenance is no longer a read-only list either, `DataB
 up `SettingsView`'s CSV export/import and encrypted backup/restore buttons, and `ServiceCentersView.swift`
 (backed by `OfficialServiceDirectory.swift`'s bundled manufacturer contacts and the new
 `CustomServiceCenter` model for user-added ones) adds a searchable service-center directory as a 6th
-sidebar entry. Only `Entitlements` from the plan is still unmodeled: nothing in the app currently reads or
-writes any unlock state, so the app is fully open with zero purchase gating. The intended product and
-technical design live in `horology_vault_monetization_plan.md` at the repo root — read it before
-implementing features, since it defines the full planned data model (`Watches`, `Straps`, `ServiceHistory`,
-`WearLog`, `Wishlist`, `ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1
-(one-time purchase, fully local/offline) vs. V2 (subscription, needs backend services) feature split, the
-planned SwiftUI view hierarchy, and the StoreKit 2 purchase flow. Section 5 of that doc tracks exactly
-what's built vs. outstanding as of the last review, and Section 6 is the ordered implementation plan —
-Phases 1–7 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data import/export
-& backup, Service center directory) are done; Phases 8–9 (Entitlements/StoreKit 2 and tests) are not
-started. Treat that doc as the
+sidebar entry. `Entitlements.swift` + `PurchaseManager.swift` (StoreKit 2, one non-consumable lifetime
+unlock) now gate new-watch creation — a fresh install seeds one demo watch and opens read-only with a
+persistent "Unlock Full Version" banner rather than a hard paywall; see Architecture below, and note two
+manual (non-code) steps remain before shipping: enabling `Configuration.storekit` in the Xcode scheme for
+local testing, and registering the real product in App Store Connect. The intended product and technical
+design live in `horology_vault_monetization_plan.md` at the repo root — read it before implementing
+features, since it defines the full planned data model (`Watches`, `Straps`, `ServiceHistory`, `WearLog`,
+`Wishlist`, `ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1 (one-time
+purchase, fully local/offline) vs. V2 (subscription, needs backend services) feature split, the planned
+SwiftUI view hierarchy, and the StoreKit 2 purchase flow. Section 5 of that doc tracks exactly what's built
+vs. outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–8 (core
+CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data import/export & backup, Service
+center directory, Entitlements/StoreKit 2) are done; only Phase 9 (tests) remains. Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -115,13 +117,18 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   "My Service Centers" section over `@Query`-fetched `CustomServiceCenter`s, "+" toolbar button → private
   `AddServiceCenterView` sheet, swipe-to-delete on custom entries only), `SettingsView` (wrist profile
   editing, a working Data section — CSV export/import + encrypted backup/restore, see `DataBackupManager`
-  below — and a still-stubbed/disabled Purchase section pending StoreKit work). `NotificationManager.swift`
-  (a static-only enum, not a view) schedules/cancels the local "service due" reminder per watch — see
-  Persistence below for the due-date math it shares with `Watch.isServiceDue`.
+  below — and a working Purchase section wired to `PurchaseManager`/`Entitlements`, see below).
+  `NotificationManager.swift` (a static-only enum, not a view) schedules/cancels the local "service due"
+  reminder per watch — see Persistence below for the due-date math it shares with `Watch.isServiceDue`.
+  `PurchaseManager.swift` (an `@Observable` class, not a view either) is injected into the environment from
+  `ContentView` via `.environment(purchaseManager)`; `VaultGridView` reads `Entitlements.isLifetimeUnlocked`
+  via `@Query` to disable its "Add Watch" button and show a persistent unlock banner when a fresh install
+  is still in its read-only demo state (one seeded sample watch, no hard paywall).
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,
-  ProvenanceDoc.self, CustomServiceCenter.self]`. `Watch` cascade-deletes its `ServiceRecord`s, `WearLog`s, and `ProvenanceDoc`s, and
+  ProvenanceDoc.self, CustomServiceCenter.self, Entitlements.self]`. `Watch` cascade-deletes its
+  `ServiceRecord`s, `WearLog`s, and `ProvenanceDoc`s, and
   nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches more than 3 years past
   their last (or acquisition) date, now derived from a shared `Watch.serviceDueDate` computed property so
   `MaintenanceView` and `NotificationManager`'s reminder scheduling can never disagree on the due date.
@@ -151,10 +158,11 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   button reopens it pre-filled. `AddWatchView`'s photo picker is `PhotosPicker` on iOS but a native
   `.fileImporter` on macOS (PhotosPicker there only browses the macOS Photos library, not arbitrary Finder
   files); `AddProvenanceDocView` uses `.fileImporter` with `[.pdf, .image]` on both platforms since documents
-  aren't photos. The monetization plan calls for an `Entitlements` table driving all feature gating
-  (`is_lifetime_unlocked`, `subscription_status`) that the UI reads but never writes directly — writes only
-  happen from the StoreKit transaction listener; this table does not exist yet (Phase 8 of the plan's Section
-  6). When adding new `@Model` types, register them in the `Schema([...])` array in `Horology_Vault_App.swift`.
+  aren't photos. `Entitlements` drives all feature gating (`isLifetimeUnlocked`, `subscriptionStatus`); the
+  UI reads it via `@Query` but never writes it directly — writes only happen from `PurchaseManager`'s
+  StoreKit transaction listener and its `reconcileEntitlementsOnLaunch()`/`purchase()`/`restorePurchases()`
+  methods, per Section 2.2. When adding new `@Model` types, register them in the `Schema([...])` array in
+  `Horology_Vault_App.swift`.
 - **Test frameworks:** unit tests (`Horology VaultTests/`) use the new **Swift Testing** framework
   (`import Testing`, `@Test`, `#expect`), not XCTest. UI tests (`Horology VaultUITests/`) use XCTest/XCUITest.
   Match whichever framework the target file already uses.
@@ -162,6 +170,8 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   Swift 5.0 language mode.
 - **Monetization/entitlement design:** see `horology_vault_monetization_plan.md` for the full picture. Key
   point for implementation ordering: V1 is 100% local/offline (no backend), gated only by
-  `is_lifetime_unlocked`; subscription-only features (market data, cloud sync, community) and their backend
+  `isLifetimeUnlocked`; subscription-only features (market data, cloud sync, community) and their backend
   services are explicitly out of scope until V1 has traction — don't build backend/network code for those
-  screens prematurely.
+  screens prematurely. StoreKit 2 testing locally uses `Configuration.storekit` (Edit Scheme → Run →
+  Options → StoreKit Configuration) rather than a live App Store Connect product, which still needs to be
+  registered separately (same product ID, `com.angelburgos.HorologyVault.lifetime`) before shipping.

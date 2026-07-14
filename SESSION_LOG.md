@@ -1,5 +1,90 @@
 # Session Log
 
+## 2026-07-14 — Session 4
+
+### Accomplished this session
+
+- Implemented Phase 8 of the monetization plan's Section 6 ordered plan in full: **Entitlements +
+  StoreKit 2 (V1 monetization)** — the last local-feature phase before Phase 9 (tests).
+- Added `Horology Vault/Entitlements.swift`: the `@Model` from Section 2.2 (`isLifetimeUnlocked: Bool`,
+  `subscriptionStatus: SubscriptionStatus` — a new `none`/`active`/`expired`/`gracePeriod` enum,
+  `subscriptionExpiresAt: Date?`, `lastValidatedAt: Date?`), registered in the `Schema([...])` array in
+  `Horology_Vault_App.swift`. Exactly one row is expected to exist; per Section 2.2's design, the UI only
+  ever reads this table via `@Query` and never talks to StoreKit directly.
+- Added `Horology Vault/PurchaseManager.swift`: an `@Observable` class (`import Observation`) covering all
+  five responsibilities Section 8 spells out — `loadProduct()` (`Product.products(for:)` for the single
+  product ID constant `PurchaseManager.lifetimeUnlockProductID =
+  "com.angelburgos.HorologyVault.lifetime"`), `configure(modelContext:)` (starts a `Task` listening to
+  `Transaction.updates`, guarded so it only starts once), `purchase()` (finishes the transaction and
+  reconciles on `.success(.verified(...))`; `.userCancelled`/`.pending` are explicit no-ops, not errors, per
+  the plan's spec), `restorePurchases()` (`AppStore.sync()` then reconcile), and
+  `reconcileEntitlementsOnLaunch()`/private `reconcileEntitlements()` (walk `Transaction.currentEntitlements`
+  and write `isLifetimeUnlocked`/`lastValidatedAt` to the single `Entitlements` row, inserting one if none
+  exists). No `Task.detached` anywhere — plain `Task { }` blocks were used throughout to match this
+  project's `-default-isolation=MainActor` build setting rather than fighting it.
+- Added `Horology Vault/Configuration.storekit`: a local StoreKit Testing configuration (schema version 3.0)
+  with one non-consumable product matching the product ID above, priced at $49.99, so the purchase flow is
+  testable in Xcode/Simulator without a live App Store Connect record. Two manual, non-code steps remain
+  before shipping: (1) enabling this file via Xcode's Edit Scheme → Run → Options → StoreKit Configuration,
+  and (2) registering the same product ID for real in App Store Connect — both called out explicitly in the
+  plan and `CLAUDE.md` rather than left implicit.
+- `Horology_Vault_App.swift` — added `Entitlements.self` to the `Schema([...])` array.
+- `ContentView.swift` — added `@State private var purchaseManager = PurchaseManager()`,
+  `@Environment(\.modelContext)`, and `@Query private var entitlements: [Entitlements]`; injects
+  `purchaseManager` into the environment via `.environment(purchaseManager)`; the existing `.task` block now
+  also calls a new private `seedDemoDataIfNeeded()`, then `purchaseManager.configure(modelContext:)`,
+  `await purchaseManager.loadProduct()`, and `await purchaseManager.reconcileEntitlementsOnLaunch()`.
+  `seedDemoDataIfNeeded()` inserts one sample Watch (a Rolex Explorer, ref. 224270) plus a default
+  `Entitlements()` row, but only when both `entitlements` and `watches` are empty — guaranteeing it never
+  touches an existing user's real collection, only a truly fresh install.
+- `VaultGridView.swift` — added `@Environment(PurchaseManager.self)` and
+  `@Query private var entitlements: [Entitlements]`, plus a computed `isUnlocked` property reading
+  `entitlements.first?.isLifetimeUnlocked ?? false`. The "Add Watch" toolbar button now has
+  `.disabled(!isUnlocked)`. Added a new `unlockBanner` view (shown above the grid whenever `!isUnlocked`)
+  with a headline, explanatory line, and an "Unlock Full Version" button calling `purchaseManager.purchase()`
+  — the demo-mode gating the plan calls for (read-only demo state with a persistent unlock prompt, not a
+  hard paywall). The `#Preview` now injects a `PurchaseManager()` into the environment so it still
+  compiles/previews standalone.
+- `SettingsView.swift` — added `import StoreKit` (needed for `Product.displayPrice` — a real compile error
+  the first time, fixed, not the usual stale-SourceKit noise), `@Environment(PurchaseManager.self)`, and
+  `@Query private var entitlements: [Entitlements]`. `purchaseStatusSection` was rewritten from
+  static/disabled UI to live: shows "Full Version" (green checkmark) when unlocked or "Demo (Read-Only)"
+  (secondary lock icon) when not; when locked, shows an "Unlock Full Version — \(product.displayPrice)"
+  button calling `purchaseManager.purchase()`; "Restore Purchase" now actually calls
+  `purchaseManager.restorePurchases()` (previously a disabled no-op); an inline red error line appears if
+  `purchaseManager.lastError` is set.
+- Updated `horology_vault_monetization_plan.md`: Section 6's Phase 8 header marked "✅ Done (2026-07-14)"
+  with a full description of the above, calling out the two remaining manual steps and the scope decision
+  that only the Vault's "Add Watch" action is gated (not every "+" button app-wide — Straps/Wishlist/Service
+  Centers stay open, since the plan's own example only mentions "Add Watch disabled" and a demo user only
+  has the one seeded watch to explore anyway). Section 5.1's "Settings" bullet updated from "stubbed
+  Purchase section" to "a working Purchase section wired to PurchaseManager"; a new bullet describing
+  Entitlements+StoreKit 2 was added. Section 5.2's gap list shrank to just Tests, with the intro line
+  updated from "Phases 1–7 ... complete" to "Phases 1–8 ... complete."
+- Updated `CLAUDE.md`: "Project state" paragraph, the Architecture section's view-hierarchy bullet, the
+  Persistence bullet's schema list, and the "Monetization/entitlement design" bullet all revised in place to
+  describe the new Entitlements/PurchaseManager/gating behavior and the Phases 1–8 done / only Phase 9
+  remaining split (previously Phases 1–7 done / 8–9 remaining).
+- Verified every change with `xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault"
+  -destination 'platform=macOS' build` after editing. One real compile error was hit and fixed (the missing
+  `import StoreKit` for `Product.displayPrice`) — final build succeeded (BUILD SUCCEEDED). As in every prior
+  session, SourceKit/editor diagnostics repeatedly showed stale "Cannot find type X in scope" errors for
+  types that demonstrably compiled fine — known editor-index lag, distinct from the one genuine compile
+  error actually fixed this session.
+
+### Pending / next steps
+
+- Only Phase 9 (tests) remains from the monetization plan's Section 6 ordered plan — no automated coverage
+  exists for any model/view added since the default Xcode scaffold; prioritize the fit calculator math,
+  Entitlements gating logic, and StoreKit purchase flow handling per the plan's own emphasis.
+- Two manual, non-code steps before shipping: enable `Configuration.storekit` in the Xcode scheme (Edit
+  Scheme → Run → Options → StoreKit Configuration) for local purchase-flow testing, and register the real
+  `com.angelburgos.HorologyVault.lifetime` product in App Store Connect.
+- The demo-mode gating only disables "Add Watch" in the Vault — Straps/Wishlist/Service Centers "+" actions
+  stay open by design (see scope note above); revisit only if that proves too permissive in practice.
+- `PurchaseManager`'s error handling surfaces `error.localizedDescription` directly in the UI — fine for V1,
+  but may be worth mapping to friendlier copy once real StoreKit error cases are observed in the wild.
+
 ## 2026-07-14 — Session 3
 
 ### Accomplished this session

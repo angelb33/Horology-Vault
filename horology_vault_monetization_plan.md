@@ -181,8 +181,8 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 - **Maintenance:** `MaintenanceView` splits watches into Service Due / Up to Date via `Watch.isServiceDue`
   (3-year interval), rows push into `WatchDetailView`.
 - **Settings:** wrist profile editing (auto-creates a `UserProfile` if none exists), a working Data section
-  (CSV import/export, encrypted backup/restore — see the Data import/export bullet below), stubbed Purchase
-  section (hardcoded "Full Version" label, disabled Restore Purchase button), About section.
+  (CSV import/export, encrypted backup/restore — see the Data import/export bullet below), a working
+  Purchase section wired to `PurchaseManager` (see Entitlements/StoreKit bullet below), About section.
 - **Maintenance reminders:** `NotificationManager` schedules a local `UNNotificationRequest` per watch on
   its computed `serviceDueDate` (`Watch.lastServiceDate ?? acquisitionDate` + 3 years, the same math
   `MaintenanceView` uses), requests authorization once at launch, and reschedules/cancels on watch create,
@@ -195,18 +195,18 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 - **Authorized service center directory:** `OfficialServiceDirectory` (bundled, 169 manufacturers spanning
   mass-market through independent haute horlogerie, website-only contact info) plus user-added
   `CustomServiceCenter` entries, browsable/searchable in the new `ServiceCentersView` sidebar screen.
+- **Entitlements + StoreKit 2:** `Entitlements` `@Model` and `PurchaseManager` (StoreKit 2, one
+  non-consumable lifetime-unlock product) gate new-watch creation behind `is_lifetime_unlocked`, with a
+  seeded one-watch demo state and a persistent unlock banner rather than a hard paywall — see the Phase 8
+  writeup below for the two manual (non-code) steps still needed before shipping.
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–7 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
-import/export & backup, Service center directory) are complete — see 5.1. Remaining gaps, in the order
-Section 6 tackles them:
+Phases 1–8 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
+import/export & backup, Service center directory, Entitlements/StoreKit 2) are complete — see 5.1.
+Remaining gap:
 
-1. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
-   the app is fully open with zero gating, so none of the demo-mode scaffolding Section 8 (StoreKit 2
-   Purchase Flow) calls for is in place yet.
-2. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
-3. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
+1. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
    `Horology VaultTests` still only has the example Swift Testing case.
 
 ## 6. Next Implementation Steps (Ordered Plan)
@@ -324,18 +324,36 @@ which made the rest of the Workbench feel like a read-only display.
 - Added "Service Centers" as a 6th sidebar entry in `ContentView.Section` (between Maintenance and
   Settings), matching the precedent Phase 4 set for Fit Calculator.
 
-### Phase 8 — Entitlements + StoreKit 2 (V1 monetization)
+### Phase 8 — Entitlements + StoreKit 2 (V1 monetization) ✅ Done (2026-07-14)
 Deliberately last: gating features is cheap to retrofit once, expensive to keep re-doing as new screens
 land.
-- Add the `Entitlements` `@Model` from Section 2.2, register it in the `Schema`.
-- Build `PurchaseManager` per Section 8 (below, an `@Observable` class: loads the product, listens to
-  `Transaction.updates`, `purchase()`, reconciles `Transaction.currentEntitlements` on launch).
-- Register the non-consumable lifetime-unlock product in App Store Connect (manual dashboard step, not
-  code).
-- Implement the demo-mode gating this plan specifies: app opens read-only with `+`/create actions disabled
-  until `is_lifetime_unlocked`, with a persistent "Unlock Full Version" prompt rather than a hard paywall.
-- Wire `SettingsView`'s Purchase section to the real `PurchaseManager` (live unlock state, working Restore
-  Purchase).
+- Added the `Entitlements` `@Model` from Section 2.2 (`isLifetimeUnlocked`, `subscriptionStatus` —
+  `SubscriptionStatus` enum: `none`/`active`/`expired`/`gracePeriod`, `subscriptionExpiresAt`,
+  `lastValidatedAt`), registered in the `Schema`. Exactly one row is expected to exist; the UI only ever
+  reads this table, never StoreKit directly, per Section 2.2's design.
+- Built `PurchaseManager.swift` (an `@Observable` class) matching Section 8's five responsibilities:
+  `loadProduct()` (`Product.products(for:)`), a `Transaction.updates` listener started from `configure(modelContext:)`,
+  `purchase()`, `reconcileEntitlementsOnLaunch()` (walks `Transaction.currentEntitlements` and writes the
+  result to the `Entitlements` row), and `restorePurchases()` (`AppStore.sync()` + reconcile).
+  `.userCancelled`/`.pending` are no-ops, not errors, matching the plan's spec.
+- Added `Configuration.storekit` (a local StoreKit Testing configuration with one non-consumable product,
+  `com.angelburgos.HorologyVault.lifetime`) so the purchase flow is testable in Xcode/Simulator without a
+  live App Store Connect record. **Two manual, non-code steps remain before shipping:** (1) in Xcode, Edit
+  Scheme → Run → Options → StoreKit Configuration → select `Configuration.storekit`, so local runs use the
+  test product; (2) register the same product ID in App Store Connect for the real listing.
+- Implemented the demo-mode gating this plan specifies: `ContentView` seeds exactly one sample watch (a
+  Rolex Explorer) plus an `Entitlements()` row on a truly empty first launch (gated on both `entitlements`
+  and `watches` being empty, so an existing user's real collection is never touched), and `VaultGridView`
+  disables its "Add Watch" toolbar button and shows a persistent "Unlock Full Version" banner (calling
+  `purchaseManager.purchase()` directly) whenever `entitlements.first?.isLifetimeUnlocked` is false — no
+  hard paywall on launch. *Scope note:* only the Vault's "Add Watch" action is gated, not every "+" button
+  app-wide (Straps/Wishlist/Service Centers/etc. stay open) — the plan's own example ("Add Watch disabled")
+  points at this one choke point, and it's the natural one since a demo user only has the one seeded watch
+  to explore anyway.
+- Wired `SettingsView`'s Purchase section to the real `PurchaseManager`: shows "Full Version" vs.
+  "Demo (Read-Only)" based on the `Entitlements` row, an "Unlock Full Version — \(price)" button when
+  locked, and a working "Restore Purchase" button, plus an inline error line if `purchaseManager.lastError`
+  is set.
 
 ### Phase 9 — Tests
 Add coverage incrementally alongside each phase above rather than as one giant batch at the end, prioritizing:

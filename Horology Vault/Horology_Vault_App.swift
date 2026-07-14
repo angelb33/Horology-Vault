@@ -20,6 +20,7 @@ struct Horology_Vault_App: App {
             WearLog.self,
             ProvenanceDoc.self,
             CustomServiceCenter.self,
+            Entitlements.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

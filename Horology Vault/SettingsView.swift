@@ -7,11 +7,14 @@
 
 import SwiftUI
 import SwiftData
+import StoreKit
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(PurchaseManager.self) private var purchaseManager
     @Query private var profiles: [UserProfile]
+    @Query private var entitlements: [Entitlements]
 
     @State private var csvExportDocument: CSVDocument?
     @State private var isExportingCSV = false
@@ -222,18 +225,44 @@ struct SettingsView: View {
 
     // MARK: Purchase Status
 
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
+    }
+
+    @ViewBuilder
     private var purchaseStatusSection: some View {
         Section {
             LabeledContent("Version") {
-                // Static until the Entitlements table + PurchaseManager (StoreKit 2) land;
-                // this label will then read is_lifetime_unlocked instead of being hardcoded.
-                Label("Full Version", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
-                    .labelStyle(.titleAndIcon)
+                if isUnlocked {
+                    Label("Full Version", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                        .labelStyle(.titleAndIcon)
+                } else {
+                    Label("Demo (Read-Only)", systemImage: "lock")
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
             }
-            Button("Restore Purchase") {}
-                // Wired to PurchaseManager.restore() once StoreKit/Entitlements are added.
-                .disabled(true)
+            if !isUnlocked {
+                Button {
+                    Task { await purchaseManager.purchase() }
+                } label: {
+                    if let product = purchaseManager.product {
+                        Text("Unlock Full Version — \(product.displayPrice)")
+                    } else {
+                        Text("Unlock Full Version")
+                    }
+                }
+                .disabled(purchaseManager.isLoadingProduct)
+            }
+            Button("Restore Purchase") {
+                Task { await purchaseManager.restorePurchases() }
+            }
+            if let lastError = purchaseManager.lastError {
+                Text(lastError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
         } header: {
             Text("Purchase")
         }

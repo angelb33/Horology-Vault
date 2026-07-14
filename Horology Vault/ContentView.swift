@@ -32,7 +32,10 @@ struct ContentView: View {
     }
 
     @State private var selection: Section? = .vault
+    @State private var purchaseManager = PurchaseManager()
+    @Environment(\.modelContext) private var modelContext
     @Query private var watches: [Watch]
+    @Query private var entitlements: [Entitlements]
 
     var body: some View {
         NavigationSplitView {
@@ -60,10 +63,32 @@ struct ContentView: View {
                 SettingsView()
             }
         }
+        .environment(purchaseManager)
         .task {
             NotificationManager.requestAuthorizationIfNeeded()
             NotificationManager.rescheduleAll(for: watches)
+            seedDemoDataIfNeeded()
+            purchaseManager.configure(modelContext: modelContext)
+            await purchaseManager.loadProduct()
+            await purchaseManager.reconcileEntitlementsOnLaunch()
         }
+    }
+
+    /// First-launch-only: gives a brand-new install something to look at in the read-only demo
+    /// state (see the monetization plan's Section 8 gating decision) instead of an empty Vault.
+    /// Gated on both `entitlements` and `watches` being empty so this never fires for an existing
+    /// user's real collection — only a truly fresh store gets the sample watch.
+    private func seedDemoDataIfNeeded() {
+        guard entitlements.isEmpty, watches.isEmpty else { return }
+        modelContext.insert(Watch(
+            brand: "Rolex",
+            model: "Explorer",
+            referenceNumber: "224270",
+            caseDiameterMM: 36,
+            lugToLugMM: 44,
+            lugWidthMM: 20
+        ))
+        modelContext.insert(Entitlements())
     }
 }
 
