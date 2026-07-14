@@ -15,9 +15,12 @@ struct FitDiagramView: View {
     let lugToLugMM: Double
     let wristTopWidthCM: Double
 
-    private var wristWidthMM: Double { wristTopWidthCM * 10 }
-    private var overhangMM: Double { max(0, lugToLugMM - wristWidthMM) }
-    private var fits: Bool { overhangMM <= 0 }
+    private var fitResult: FitCalculator.Result {
+        FitCalculator.evaluate(lugToLugMM: lugToLugMM, wristTopWidthCM: wristTopWidthCM)
+    }
+    private var wristWidthMM: Double { fitResult.wristWidthMM }
+    private var overhangMM: Double { fitResult.overhangMM }
+    private var fits: Bool { fitResult.fits }
 
     var body: some View {
         VStack(spacing: 12) {

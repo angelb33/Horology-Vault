@@ -92,11 +92,29 @@ final class PurchaseManager {
             }
         }
         guard let modelContext else { return }
+        Self.updateEntitlementsRecord(unlocked: unlocked, in: modelContext)
+    }
+
+    /// Inserts the singleton `Entitlements` row if none exists yet, otherwise updates it in
+    /// place, rather than ever inserting a second row. Pulled out as a static, StoreKit-free
+    /// function (rather than left inline in `reconcileEntitlements()`) so this gating logic —
+    /// the part that actually decides whether the paid feature set is unlocked or locked — can
+    /// be unit tested against an in-memory `ModelContext` without needing a live (or
+    /// `StoreKitTest`) transaction feed.
+    @discardableResult
+    static func updateEntitlementsRecord(
+        unlocked: Bool,
+        in modelContext: ModelContext,
+        now: Date = Date()
+    ) -> Entitlements {
         if let existing = try? modelContext.fetch(FetchDescriptor<Entitlements>()).first {
             existing.isLifetimeUnlocked = unlocked
-            existing.lastValidatedAt = Date()
+            existing.lastValidatedAt = now
+            return existing
         } else {
-            modelContext.insert(Entitlements(isLifetimeUnlocked: unlocked, lastValidatedAt: Date()))
+            let entitlements = Entitlements(isLifetimeUnlocked: unlocked, lastValidatedAt: now)
+            modelContext.insert(entitlements)
+            return entitlements
         }
     }
 }
