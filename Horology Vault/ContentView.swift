@@ -14,6 +14,7 @@ struct ContentView: View {
         case fitCalculator = "Fit Calculator"
         case wishlist = "Wishlist"
         case maintenance = "Maintenance"
+        case serviceCenters = "Service Centers"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -24,6 +25,7 @@ struct ContentView: View {
             case .fitCalculator: "ruler"
             case .wishlist: "star"
             case .maintenance: "wrench.and.screwdriver"
+            case .serviceCenters: "wrench.adjustable"
             case .settings: "gearshape"
             }
         }
@@ -52,6 +54,8 @@ struct ContentView: View {
                 WishlistView()
             case .maintenance:
                 MaintenanceView()
+            case .serviceCenters:
+                ServiceCentersView()
             case .settings:
                 SettingsView()
             }

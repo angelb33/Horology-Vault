@@ -192,18 +192,21 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   AES-GCM, passphrase-derived key) full-collection backup/restore covering watches, straps, service
   records, wear logs, provenance docs, wishlist items, and the wrist profile. Restore is additive rather
   than replace-all.
+- **Authorized service center directory:** `OfficialServiceDirectory` (bundled, 169 manufacturers spanning
+  mass-market through independent haute horlogerie, website-only contact info) plus user-added
+  `CustomServiceCenter` entries, browsable/searchable in the new `ServiceCentersView` sidebar screen.
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–6 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
-import/export & backup) are complete — see 5.1. Remaining gaps, in the order Section 6 tackles them:
+Phases 1–7 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
+import/export & backup, Service center directory) are complete — see 5.1. Remaining gaps, in the order
+Section 6 tackles them:
 
-1. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
-2. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
+1. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
    the app is fully open with zero gating, so none of the demo-mode scaffolding Section 8 (StoreKit 2
    Purchase Flow) calls for is in place yet.
-3. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
-4. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
+2. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
+3. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
    `Horology VaultTests` still only has the example Swift Testing case.
 
 ## 6. Next Implementation Steps (Ordered Plan)
@@ -294,9 +297,32 @@ which made the rest of the Workbench feel like a read-only display.
 - Restoring a backup also calls `NotificationManager.rescheduleAll(for:)` so newly-restored watches get
   their maintenance reminders immediately rather than waiting for the next app launch.
 
-### Phase 7 — Authorized service center directory
-- Add a bundled static dataset (JSON in the app bundle) and a simple browse/search view. Lowest priority of
-  the remaining local features since it's static reference content rather than user data.
+### Phase 7 — Authorized service center directory ✅ Done (2026-07-14)
+- Added `OfficialServiceDirectory.swift`: a bundled, read-only list of official service/support entry
+  points, grown in two passes — an initial 16 major manufacturers (Rolex, Tudor, Omega, Seiko, Grand Seiko,
+  TAG Heuer, Breitling, IWC, Panerai, Cartier, Longines, Citizen, Hamilton, Casio, Hublot, Tissot), then
+  expanded to 169 total brands by working through the full brand index at thewatchpages.com/brands (Swiss
+  haute horlogerie houses, independent ateliers, and enthusiast brands from A. Lange & Söhne through ZRC).
+  Each entry is root-domain-only (e.g. `rolex.com`) — deliberately no phone numbers or street addresses,
+  since third-party listings for those are frequently stale or wrong, which is worse than omitting them for
+  something as high-stakes as where to send an expensive watch. Domains were either already confidently
+  known or verified via web search (never guessed) before being added; three brands from that source list
+  were deliberately excluded — Claude Meylan and Emmanuel Bouchet (no confident official site found) and
+  Purnell (ceased operating/bankrupt as of December 2024, so there's no active support to point to).
+  Implemented as a Swift literal array rather than a bundled JSON resource file, to get the same
+  static/read-only/ships-with-the-app effect without hand-editing the Xcode project file to register a new
+  bundle resource.
+  - **Open decision resolved during implementation:** the plan originally scoped this as manufacturer-only
+    reference content; the actual build also lets users add their own entries (a local watchmaker, an
+    independent shop) via a new `CustomServiceCenter` `@Model` (name, brand, phone, website, address,
+    notes), registered in the schema. This was an explicit ask, not scope creep — a collector's actual
+    trusted service contact is often independent, not the manufacturer.
+- Added `ServiceCentersView.swift`: a searchable (`.searchable`) List with two sections — "Manufacturer
+  Support" (the bundled directory, read-only) and "My Service Centers" (`CustomServiceCenter` entries, with
+  a "+" toolbar button opening an `AddServiceCenterView` sheet and swipe-to-delete). Search filters both
+  sections by brand or name.
+- Added "Service Centers" as a 6th sidebar entry in `ContentView.Section` (between Maintenance and
+  Settings), matching the precedent Phase 4 set for Fit Calculator.
 
 ### Phase 8 — Entitlements + StoreKit 2 (V1 monetization)
 Deliberately last: gating features is cheap to retrofit once, expensive to keep re-doing as new screens
@@ -325,8 +351,10 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 
 **Sidebar (top-level sections):**
 - Vault (default/home)
+- Fit Calculator
 - Wishlist
 - Maintenance
+- Service Centers
 - Settings
 - *(V2, hidden until subscription ships)* Strap Shop · Market Value · Community
 
@@ -349,6 +377,10 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 
 **Maintenance**
 - Cross-collection list of upcoming/overdue service items, sorted by due date — this is what drives the local notification reminders, so the screen and the notification scheduling share one query.
+
+**Service Centers**
+- Searchable list of official manufacturer service/support contacts (bundled, read-only) plus user-added
+  custom entries (name, brand, phone, website, address, notes), with add/delete for the custom ones.
 
 **Settings**
 - Wrist profile (`wrist_top_width_cm`, `wrist_side_depth_cm`).

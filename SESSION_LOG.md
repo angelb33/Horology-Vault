@@ -1,5 +1,70 @@
 # Session Log
 
+## 2026-07-14 — Session 3
+
+### Accomplished this session
+
+- Implemented Phase 7 of the monetization plan's Section 6 ordered plan in full: **Authorized service
+  center directory**. (Note: this is the first commit that includes this feature — despite a prior
+  same-day session log entry describing it as "not started," no earlier commit for it exists in git
+  history, so this entry covers the complete feature build, not just an incremental expansion.)
+- Added `Horology Vault/OfficialServiceDirectory.swift`: a bundled, read-only `OfficialServiceContact`
+  literal array (root-domain-only contact info — deliberately no phone numbers/addresses, since
+  third-party listings for those are frequently stale). Built in two tiers: an initial 16 major
+  manufacturers (Rolex, Tudor, Omega, Seiko, Grand Seiko, TAG Heuer, Breitling, IWC, Panerai, Cartier,
+  Longines, Citizen, Hamilton, Casio, Hublot, Tissot), then expanded — at the user's explicit request —
+  to all ~169 brands listed at thewatchpages.com/brands, from mass-market names down to ultra-niche
+  independent ateliers (AKRIVIA, De Bethune, Voutilainen, Urwerk, Greubel Forsey, F.P.Journe, Czapek, and
+  many more). The original 16-brand array is untouched; the expansion is a new `additionalContacts: [OfficialServiceContact]`
+  array (153 entries) built via a small `contact(_:_:)` helper (name defaults to brand name, notes is one
+  consistent generic line) to avoid repeating full initializer boilerplate 153 times. The public `contacts`
+  array is the original 16 + `additionalContacts`. Domains were either already confidently known (~52
+  well-known brands) or verified one-by-one via web search (~99 independent/niche brands) — never guessed.
+  Three brands from the source list were deliberately excluded: Claude Meylan and Emmanuel Bouchet (no
+  confident official website found via search) and Purnell (confirmed bankrupt/ceased operating as of
+  December 2024, so there's no active support to point users to). Verified final count via `grep -c`: 17
+  `OfficialServiceContact(` literal occurrences (16 curated + 1 inside the `contact()` helper) plus 153
+  `contact("` call sites = 169 total brands.
+- Added `Horology Vault/CustomServiceCenter.swift`: a new `@Model` (name, brand, phone, website, address,
+  notes) for user-added service centers, registered in the `Schema([...])` in `Horology_Vault_App.swift`.
+  This resolves an open decision noted in the plan — the plan originally scoped this feature as
+  manufacturer-only reference content, but a collector's actual trusted service contact is often
+  independent, not the manufacturer, so custom entries were added as an explicit (non-scope-creep) ask.
+- Added `Horology Vault/ServiceCentersView.swift`: a `.searchable` List with two sections —
+  "Manufacturer Support" (the bundled `OfficialServiceDirectory.contacts`, read-only) and "My Service
+  Centers" (`@Query`-fetched `CustomServiceCenter`s, "+" toolbar button opening a private
+  `AddServiceCenterView` sheet, swipe-to-delete on custom entries only). Search filters both sections by
+  brand or name.
+- `ContentView.swift` — added `.serviceCenters` as a 6th `ContentView.Section` case (between Maintenance
+  and Settings, `wrench.adjustable` icon), routed to the new `ServiceCentersView`.
+- Updated `horology_vault_monetization_plan.md`: Phase 7's Section 6 entry marked "✅ Done (2026-07-14)"
+  with a description of the two-tier brand growth and the 3 named exclusions with reasons; Section 5.1's
+  "Built so far" bullet added for the directory (169 manufacturers); Section 5.2's gap list renumbered
+  (service center directory removed, "Phases 1–7 ... complete"); the planned view-hierarchy section (§7)
+  gained "Service Centers" sidebar entry and screen description.
+- Updated `CLAUDE.md`: "Project state" paragraph now mentions `ServiceCentersView.swift`/
+  `OfficialServiceDirectory.swift`/`CustomServiceCenter` and the Phases 1–7 done / 8–9 remaining split; the
+  Architecture section's sidebar/view-hierarchy bullets and the Persistence bullet (schema list, plus a new
+  paragraph explaining `OfficialServiceDirectory` is a plain Swift literal, not a `@Model`, since it's
+  bundled read-only reference data) were revised in place to match.
+- Checked `horology_vault_market_research.md` for stale service-center/phase references — none existed, so
+  no edit was needed there.
+- Verified with `xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault" -destination
+  'platform=macOS' build` after editing — BUILD SUCCEEDED, no new compile errors. The recurring SourceKit
+  "Cannot find type X in scope" editor diagnostics are known stale editor-index lag (as in every prior
+  session), not real errors.
+
+### Pending / next steps
+
+- Remaining phases from the monetization plan's Section 6: Phase 8 (`Entitlements` model +
+  `PurchaseManager` + StoreKit 2 — the app currently has zero purchase gating), Phase 9 (tests — no
+  automated coverage exists for any model/view added since the default Xcode scaffold).
+- `OfficialServiceDirectory` domains were verified via web search rather than an authoritative source of
+  record — worth a periodic re-check for brand acquisitions, site migrations, or domain changes, especially
+  among the smaller independent ateliers.
+- Claude Meylan, Emmanuel Bouchet, and Purnell are intentionally absent from the directory (no confident
+  official site / company ceased operating) — revisit only if better information surfaces.
+
 ## 2026-07-14 — Session 2
 
 ### Accomplished this session
