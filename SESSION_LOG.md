@@ -1,5 +1,77 @@
 # Session Log
 
+## 2026-07-14 — Session 5
+
+### Accomplished this session
+
+- Implemented Phase 9 of the monetization plan's Section 6 ordered plan: **test coverage for the Fit
+  Calculator, Entitlements gating, and Watch model invariants** — the last phase of the entire V1 ordered
+  implementation plan. **This completes the full V1 local-only feature roadmap: all 9 phases of Section 6
+  are now done.** Only V2 (the subscription tier, Section 4/Section 10) remains, and it stays gated on V1
+  getting real user traction before starting.
+- Work was produced by a `test-writer` subagent running in an isolated git worktree (it has no
+  git-commit permission in its sandboxed config), then committed/merged/pushed by hand afterward.
+- Added `Horology Vault/FitCalculator.swift`: pulled the fit-check math (`wristWidthMM`, `overhangMM`,
+  `fits`) out of `FitDiagramView`'s private computed properties — not unit-testable from a separate test
+  target — into a pure `FitCalculator.evaluate(lugToLugMM:wristTopWidthCM:) -> Result` static function.
+  `FitDiagramView.swift` now delegates to it via one `fitResult` computed property; rendering/behavior
+  unchanged (verified via successful build).
+- `PurchaseManager.swift`: extracted the insert-or-update persistence logic out of the private
+  `reconcileEntitlements()` into `static func updateEntitlementsRecord(unlocked:in:now:) -> Entitlements`
+  (`@discardableResult`), callable directly against an in-memory `ModelContext` without touching StoreKit.
+  `reconcileEntitlements()` now just gathers `unlocked` from `Transaction.currentEntitlements` and calls
+  this function — no behavior change.
+- Added `Horology VaultTests/FitCalculatorTests.swift` (10 tests): exact-fit boundary, watch
+  smaller/larger than wrist (verifying overhang amount), zero/negative lug-to-lug and wrist-width edge
+  cases, an extreme oversized-watch case.
+- Added `Horology VaultTests/EntitlementsTests.swift` (13 tests): `Entitlements` defaults,
+  insert-vs-update-in-place reconciliation (no duplicate rows ever created), locking on revoke/refund, the
+  UI's `entitlements.first?.isLifetimeUnlocked ?? false` gating read before/after a simulated purchase,
+  expired/grace-period `SubscriptionStatus` round-tripping, `PurchaseManager.configure(modelContext:)`
+  idempotency — all against an in-memory `ModelContainer`. Live StoreKit calls (`Product.products(for:)`,
+  `Transaction.currentEntitlements`, `product.purchase()`) are explicitly not unit-tested since they aren't
+  meaningfully testable without Apple's `StoreKitTest`/`SKTestSession` framework — noted as a reasonable
+  fast-follow using the existing `Configuration.storekit` file from Phase 8, not done this session.
+- Added `Horology VaultTests/WatchModelTests.swift` (13 tests): `Watch.serviceDueDate`/`isServiceDue`
+  (fallback to `acquisitionDate` when no `ServiceRecord`s exist, uses most-recent
+  `ServiceRecord.datePerformed`, 3-year boundary, due clock resetting after a new service), cascade-delete
+  of `ServiceRecord`/`WearLog`/`ProvenanceDoc` (individually and all together), nullify-not-delete of an
+  attached `Strap` on watch deletion, standard insert/fetch/update round-trips — all against an in-memory
+  `ModelContainer`.
+- Total: 33 tests pass (32 new + the original Xcode-scaffold `example()` case). One real bug was caught
+  and fixed during the process, but it was in the test-writer's own first-draft test data
+  (`watchLargerThanWristOverhangs` had numbers that actually described a smaller-than-wrist watch) — not a
+  production code bug. Verified via `xcodebuild ... test` (TEST SUCCEEDED) and a separate `... build` run
+  for the app target, both re-run in the main checkout after merging, not just trusted from the subagent's
+  isolated worktree run.
+- Updated `horology_vault_monetization_plan.md`: Section 5.2's gap list now says "Phases 1–9 ... are
+  complete. Nothing remains against this plan's V1 scope" (previously listed "Tests" as the one remaining
+  gap); Section 6's Phase 9 entry marked "✅ Done (2026-07-14)" with a full writeup of what was tested and
+  the StoreKitTest fast-follow note.
+- Updated `CLAUDE.md`: "Project state" opening line now says V1 is "fully built out" (Phases 1-9 all done,
+  previously "mostly built out"); the Section 6 phase-tracking sentence now says Phases 1-9 all done /
+  nothing remains (previously Phases 1-8 done, only Phase 9 remaining); the "Test frameworks" bullet in
+  Architecture now names the three new test files and notes the `FitCalculator`/
+  `updateEntitlementsRecord` testability-extraction pattern for future business logic.
+- Committed as two commits: `9851ca7` (implementation) and `19d5fd6` (doc updates), both already merged
+  to `main` and pushed to `origin/main` before this close-out — verified `git status` clean and
+  `HEAD` == `origin/main` at `19d5fd6`.
+
+### Pending / next steps
+
+- **The entire V1 local-only feature roadmap (Section 6, all 9 phases) is complete.** No further V1 work
+  is defined in the plan.
+- Two manual, non-code steps still remain before shipping (carried over from Phase 8, untouched this
+  session): enable `Configuration.storekit` in the Xcode scheme (Edit Scheme → Run → Options → StoreKit
+  Configuration) for local purchase-flow testing, and register the real
+  `com.angelburgos.HorologyVault.lifetime` product in App Store Connect.
+- Fast-follow candidate (not scheduled): full end-to-end StoreKit purchase-flow testing via
+  `SKTestSession(configurationFileNamed: "Configuration")`, since live StoreKit calls aren't covered by
+  this session's unit tests.
+- V2 (subscription tier, Section 4/Section 10 of the plan) is the only remaining scope in the
+  monetization plan — explicitly gated on V1 having real user traction first, not to be started
+  unprompted.
+
 ## 2026-07-14 — Session 4
 
 ### Accomplished this session
