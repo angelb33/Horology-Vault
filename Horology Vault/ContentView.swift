@@ -30,6 +30,7 @@ struct ContentView: View {
     }
 
     @State private var selection: Section? = .vault
+    @Query private var watches: [Watch]
 
     var body: some View {
         NavigationSplitView {
@@ -54,6 +55,10 @@ struct ContentView: View {
             case .settings:
                 SettingsView()
             }
+        }
+        .task {
+            NotificationManager.requestAuthorizationIfNeeded()
+            NotificationManager.rescheduleAll(for: watches)
         }
     }
 }

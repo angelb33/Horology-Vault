@@ -181,6 +181,7 @@ struct AddWatchView: View {
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
         let complications = commonComplications.filter { selectedComplications.contains($0) }
 
+        let targetWatch: Watch
         if let watchToEdit {
             watchToEdit.brand = trimmedBrand
             watchToEdit.model = trimmedModel
@@ -190,6 +191,7 @@ struct AddWatchView: View {
             watchToEdit.lugToLugMM = lugToLugMM ?? 0
             watchToEdit.lugWidthMM = lugWidthMM ?? 0
             watchToEdit.photoData = photoData
+            targetWatch = watchToEdit
         } else {
             let watch = Watch(
                 brand: trimmedBrand,
@@ -202,7 +204,9 @@ struct AddWatchView: View {
                 photoData: photoData
             )
             modelContext.insert(watch)
+            targetWatch = watch
         }
+        NotificationManager.scheduleServiceDueReminder(for: targetWatch)
         dismiss()
     }
 }

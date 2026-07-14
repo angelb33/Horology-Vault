@@ -183,22 +183,23 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 - **Settings:** wrist profile editing (auto-creates a `UserProfile` if none exists), stubbed/disabled Data
   section (CSV import/export, encrypted backup/restore), stubbed Purchase section (hardcoded "Full
   Version" label, disabled Restore Purchase button), About section.
+- **Maintenance reminders:** `NotificationManager` schedules a local `UNNotificationRequest` per watch on
+  its computed `serviceDueDate` (`Watch.lastServiceDate ?? acquisitionDate` + 3 years, the same math
+  `MaintenanceView` uses), requests authorization once at launch, and reschedules/cancels on watch create,
+  edit, service log, and delete.
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–4 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator) are complete — see 5.1.
-Remaining gaps, in the order Section 6 tackles them:
+Phases 1–5 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders) are
+complete — see 5.1. Remaining gaps, in the order Section 6 tackles them:
 
-1. **Maintenance reminders** — `MaintenanceView` surfaces overdue watches when the screen is opened, but
-   nothing schedules an actual local notification; this plan calls for that screen's query to double as
-   what drives `UNNotificationRequest` scheduling.
-2. **Data import/export & encrypted backup** — the Data section's buttons in Settings are no-ops.
-3. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
-4. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
+1. **Data import/export & encrypted backup** — the Data section's buttons in Settings are no-ops.
+2. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
+3. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
    the app is fully open with zero gating, so none of the demo-mode scaffolding Section 8 (StoreKit 2
    Purchase Flow) calls for is in place yet.
-5. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
-6. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
+4. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
+5. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
    `Horology VaultTests` still only has the example Swift Testing case.
 
 ## 6. Next Implementation Steps (Ordered Plan)
@@ -252,11 +253,21 @@ which made the rest of the Workbench feel like a read-only display.
 - Upgraded `WatchDetailView`'s Fit Preview section to embed `FitDiagramView` instead of the previous
   side-by-side numbers.
 
-### Phase 5 — Maintenance reminders (local notifications)
-- Request notification authorization (once, e.g. from `SettingsView` or on first watch add).
-- Schedule a `UNNotificationRequest` per watch when it crosses into service-due territory, driven by the
-  same `isServiceDue`/due-date query `MaintenanceView` already uses, and reschedule on service log / watch
-  edit / delete.
+### Phase 5 — Maintenance reminders (local notifications) ✅ Done (2026-07-14)
+- Added `NotificationManager.swift`, a static-only enum wrapping `UNUserNotificationCenter`:
+  `requestAuthorizationIfNeeded()` (only prompts if authorization is still `.notDetermined`),
+  `scheduleServiceDueReminder(for:)`, `cancelServiceDueReminder(for:)`, and `rescheduleAll(for:)`.
+- Refactored `Watch.isServiceDue` to derive from a new `Watch.serviceDueDate` computed property
+  (`lastServiceDate ?? acquisitionDate` + 3 years) so `MaintenanceView`'s due-list and the notification's
+  due date can never disagree — both now read the same source of truth.
+- `ContentView` requests authorization and reschedules every watch's reminder once at launch (`.task` with
+  a `@Query private var watches: [Watch]`), which also covers watches whose data changed outside the app's
+  own CRUD flows.
+- Reminders are (re)scheduled from `AddWatchView.save()` (create and edit) and `AddServiceRecordView.save()`
+  (logging a service resets the 3-year clock), and cancelled from both delete paths — `WatchDetailView`'s
+  toolbar Delete and `VaultGridView`'s context-menu Delete.
+- Notification identifiers are derived from `watch.persistentModelID` (stable from insert onward in
+  SwiftData) rather than a new stored field, so no schema/migration change was needed for this phase.
 
 ### Phase 6 — Data import/export & encrypted backup
 - Wire up the four no-op buttons in `SettingsView`'s Data section: CSV export/import for `Watch` (and

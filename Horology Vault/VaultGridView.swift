@@ -99,6 +99,7 @@ struct VaultGridView: View {
             ) {
                 Button("Delete", role: .destructive) {
                     if let watch = watchPendingDeletion {
+                        NotificationManager.cancelServiceDueReminder(for: watch)
                         modelContext.delete(watch)
                     }
                     watchPendingDeletion = nil

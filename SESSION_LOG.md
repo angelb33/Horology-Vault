@@ -1,5 +1,54 @@
 # Session Log
 
+## 2026-07-14
+
+### Accomplished this session
+
+- Implemented Phase 5 of the monetization plan's Section 6 ordered plan: **Maintenance reminders (local
+  notifications)**.
+- Added `Horology Vault/NotificationManager.swift` — a static-only enum wrapping `UNUserNotificationCenter`:
+  `requestAuthorizationIfNeeded()` (only prompts if authorization status is still `.notDetermined`),
+  `scheduleServiceDueReminder(for:)` (cancels any existing pending request for the watch, then schedules a
+  `UNCalendarNotificationRequest` if `serviceDueDate` is still in the future), `cancelServiceDueReminder(for:)`,
+  and `rescheduleAll(for:)`. Notification identifiers are derived from `watch.persistentModelID` (stable from
+  insert onward in SwiftData) rather than a new stored field, so no schema/migration change was needed.
+- Refactored `Watch.swift`: extracted a new `serviceDueDate: Date?` computed property (`lastServiceDate ??
+  acquisitionDate` + 3 years) and rewrote `isServiceDue` to just compare against it — `MaintenanceView` and
+  `NotificationManager` now share one source of truth for the due date instead of duplicating the 3-year math.
+- `ContentView.swift` — added `@Query private var watches: [Watch]` and a `.task` on the root
+  `NavigationSplitView` that requests authorization then reschedules every watch's reminder once at launch
+  (covers data changed outside the app's own CRUD flows, e.g. a future restored backup).
+- `AddWatchView.swift`'s `save()` — captures the saved/edited watch into a `targetWatch` local and schedules
+  its reminder before dismissing, covering both create and edit.
+- `WatchDetailView.swift` — `AddServiceRecordView.save()` reschedules the reminder after inserting a new
+  `ServiceRecord` (logging a service resets the 3-year clock); the toolbar Delete `confirmationDialog`'s
+  destructive button now cancels the reminder before deleting the watch.
+- `VaultGridView.swift` — the context-menu Delete `confirmationDialog`'s destructive button likewise cancels
+  the reminder before deleting.
+- Updated `horology_vault_monetization_plan.md`: Section 6's Phase 5 header marked "✅ Done (2026-07-14)"
+  with a description of what was actually built; Section 5.1's "Built so far" gained a bullet for the
+  notification feature; Section 5.2's gap list shrank from 6 items to 5 (maintenance-reminders gap removed,
+  list renumbered, intro line updated to "Phases 1–5 ... complete").
+- Updated `CLAUDE.md`: "Project state" now mentions `NotificationManager.swift` and the Phases 1–5 done /
+  6–9 remaining split; the Architecture section's view-hierarchy bullet and Persistence bullet both gained
+  descriptions of the shared `serviceDueDate` property and where scheduling/cancellation is called from.
+- Verified every change with `xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault"
+  -destination 'platform=macOS' build` after editing — both intermediate and final builds succeeded (BUILD
+  SUCCEEDED). As in prior sessions, SourceKit/editor diagnostics repeatedly showed stale "Cannot find type X
+  in scope" errors for types that demonstrably compiled fine — known editor-index lag, not a real error.
+
+### Pending / next steps
+
+- Remaining phases from the monetization plan's Section 6, in order: Phase 6 (data import/export +
+  encrypted backup — the Data section's buttons in `SettingsView` are still no-ops), Phase 7 (authorized
+  service center directory — bundled static dataset, not started), Phase 8 (`Entitlements` model +
+  `PurchaseManager` + StoreKit 2 — the app currently has zero purchase gating), Phase 9 (tests — no
+  automated coverage exists for any model/view added since the default Xcode scaffold).
+- Reminder scheduling has no user-facing controls yet (no way to disable reminders, no lead-time
+  customization before the due date) — not called for by the plan yet, but worth flagging if requested.
+- Notifications currently fire on the due date itself, not some number of days in advance — matches the
+  plan's Phase 5 description as written; revisit if a "days before" lead time proves more useful in practice.
+
 ## 2026-07-13 — Session 2
 
 ### Accomplished this session

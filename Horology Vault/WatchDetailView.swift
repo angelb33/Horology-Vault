@@ -75,6 +75,7 @@ struct WatchDetailView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
+                NotificationManager.cancelServiceDueReminder(for: watch)
                 modelContext.delete(watch)
                 dismiss()
             }
@@ -379,6 +380,7 @@ private struct AddServiceRecordView: View {
             watch: watch
         )
         modelContext.insert(record)
+        NotificationManager.scheduleServiceDueReminder(for: watch)
         dismiss()
     }
 }

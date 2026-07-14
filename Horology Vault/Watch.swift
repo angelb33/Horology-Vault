@@ -60,13 +60,16 @@ final class Watch {
         serviceRecords.map(\.datePerformed).max()
     }
 
-    /// Mechanical watches are typically serviced every 3-5 years; flag anything past 3 as due,
-    /// falling back to the acquisition date for watches that have never been serviced.
+    /// Mechanical watches are typically serviced every 3-5 years; this is the date that
+    /// crossing marks the watch as due, falling back to the acquisition date for watches
+    /// that have never been serviced. Shared by `isServiceDue` and `NotificationManager`
+    /// so the maintenance list and the reminder notification never disagree.
+    var serviceDueDate: Date? {
+        Calendar.current.date(byAdding: .year, value: 3, to: lastServiceDate ?? acquisitionDate)
+    }
+
     var isServiceDue: Bool {
-        let referenceDate = lastServiceDate ?? acquisitionDate
-        guard let threshold = Calendar.current.date(byAdding: .year, value: 3, to: referenceDate) else {
-            return false
-        }
-        return threshold < Date()
+        guard let serviceDueDate else { return false }
+        return serviceDueDate < Date()
     }
 }
