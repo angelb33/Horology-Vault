@@ -1,5 +1,69 @@
 # Session Log
 
+## 2026-07-14 — Session 2
+
+### Accomplished this session
+
+- Implemented Phase 6 of the monetization plan's Section 6 ordered plan: **Data import/export & encrypted
+  backup**, wiring up the four previously no-op buttons in `SettingsView`'s Data section.
+- Added `Horology Vault/DataBackupManager.swift` (447 lines), a static-only enum with two feature areas:
+  - **CSV export/import** (`exportWatchesCSV`/`importWatchesCSV`) covering only `Watch`'s own fields (brand,
+    model, reference number, complications, case diameter, lug-to-lug, lug width, acquisition date) — nested
+    relations (straps/service/wear/provenance) don't fit a flat row, so they're left to the backup path.
+    Uses a small hand-rolled RFC4180-ish CSV encoder (`csvEscape`) and a manual character-by-character
+    parser (`parseCSV`) rather than a third-party dependency.
+  - **Encrypted full-collection backup/restore** (`exportEncryptedBackup`/`importEncryptedBackup`): builds/
+    consumes a private `Codable` `BackupPayload` (watches with embedded service records/wear logs/
+    provenance docs, straps linked back to their watch by array index within the same payload since a fresh
+    restore has no persistent IDs yet, wishlist items, and the wrist profile), JSON-encoded (ISO8601 dates)
+    and sealed with CryptoKit `AES.GCM` using a key derived via `SymmetricKey(data: SHA256.hash(data:))`
+    from a user-entered passphrase — no PBKDF2/salt, a deliberate choice documented in a code comment as
+    sufficient to deter casual access to a local file without adding complexity beyond what a V1 local
+    backup needs.
+  - Restore is **additive**: records are inserted alongside whatever's already in the `ModelContext` rather
+    than replacing the collection outright, to avoid a silent full-collection wipe on a bad restore.
+  - Added `CSVDocument` and `BackupDocument`, two `FileDocument`-conforming wrapper structs backing the
+    `.fileExporter` calls. Hit and fixed a real compile error here (not the usual stale-SourceKit noise):
+    this SDK's `FileWrapper` initializer is `regularFileWithContents:`, not `regularFileContents:`.
+- `SettingsView.swift` — added `import UniformTypeIdentifiers`; state for the `CSVDocument`/`BackupDocument`
+  documents and import/export presentation flags; a private `PassphrasePurpose` enum (`.creatingBackup` /
+  `.restoringBackup(Data)`) driving a single shared `SecureField`-based `.alert` reused for both create and
+  restore; a status-message `.alert` for success/error feedback. Added `.fileExporter`/`.fileImporter`
+  modifiers for both CSV and the encrypted backup, following the same security-scoped-resource-access
+  pattern already used in `AddWatchView`/`AddProvenanceDocView`. A successful restore also calls
+  `NotificationManager.rescheduleAll(for:)` so restored watches get Phase 5's maintenance reminders
+  immediately rather than waiting for next launch. Removed the Data section's `.disabled(true)` and updated
+  its footer text.
+- Updated `horology_vault_monetization_plan.md`: Section 6's Phase 6 header marked "✅ Done (2026-07-14)"
+  with a description matching the work above; Section 5.1's "Built so far" gained a bullet for the feature;
+  Section 5.2's gap list shrank from 5 items to 4 (renumbered, intro line updated to "Phases 1–6 ...
+  complete"); Section 9 (Open Decisions) gained a bullet about whether "Restore from Backup" should
+  eventually offer a true replace-all mode instead of staying additive-only.
+- Updated `CLAUDE.md`: "Project state" now mentions `DataBackupManager.swift` and the Phases 1–6 done /
+  7–9 remaining split; the Architecture section's view-hierarchy bullet now describes `SettingsView`'s
+  working Data section instead of "stubbed/disabled"; the Persistence bullet gained a paragraph describing
+  `DataBackupManager`'s CSV and encrypted-backup responsibilities and the additive-restore design choice.
+- Verified every change with `xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault"
+  -destination 'platform=macOS' build` after editing. One real compile error was hit and fixed (the
+  `FileWrapper` initializer label above) plus a minor actor-isolation warning (fixed by wrapping a bare
+  function reference passed to `.map` in an explicit closure) — final build succeeded (BUILD SUCCEEDED). As
+  in every prior session, SourceKit/editor diagnostics repeatedly showed stale "Cannot find type X in scope"
+  errors for types that demonstrably compiled fine — known editor-index lag, distinct from the one genuine
+  compile error actually fixed this session.
+
+### Pending / next steps
+
+- Remaining phases from the monetization plan's Section 6, in order: Phase 7 (authorized service center
+  directory — bundled static dataset, not started), Phase 8 (`Entitlements` model + `PurchaseManager` +
+  StoreKit 2 — the app currently has zero purchase gating), Phase 9 (tests — no automated coverage exists
+  for any model/view added since the default Xcode scaffold).
+- Open design question flagged in the plan's Section 9: whether "Restore from Backup" should stay additive
+  (current behavior) or gain a true replace-all mode — a power user restoring onto a fresh install may
+  expect exact replacement rather than a merge.
+- The encrypted backup's key derivation is intentionally lightweight (SHA256 of the passphrase, no PBKDF2/
+  salt) — fine for deterring casual access to a local file, but revisit if backups are ever synced/shared
+  in a way that raises the threat model.
+
 ## 2026-07-14
 
 ### Accomplished this session

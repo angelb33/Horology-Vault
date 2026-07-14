@@ -7,10 +7,28 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
+
+    @State private var csvExportDocument: CSVDocument?
+    @State private var isExportingCSV = false
+    @State private var isImportingCSV = false
+
+    @State private var backupExportDocument: BackupDocument?
+    @State private var isExportingBackup = false
+    @State private var isImportingBackup = false
+
+    private enum PassphrasePurpose {
+        case creatingBackup
+        case restoringBackup(Data)
+    }
+    @State private var passphrasePurpose: PassphrasePurpose?
+    @State private var passphraseInput = ""
+
+    @State private var statusMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -28,6 +46,112 @@ struct SettingsView: View {
             #endif
             .navigationTitle("Settings")
             .onAppear(perform: ensureProfileExists)
+            .fileExporter(isPresented: $isExportingCSV, document: csvExportDocument, contentType: .commaSeparatedText, defaultFilename: "HorologyVaultWatches") { result in
+                if case .failure(let error) = result {
+                    statusMessage = error.localizedDescription
+                }
+            }
+            .fileImporter(isPresented: $isImportingCSV, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
+                do {
+                    let url = try result.get()
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                    let text = try String(contentsOf: url, encoding: .utf8)
+                    let outcome = try DataBackupManager.importWatchesCSV(text, context: modelContext)
+                    statusMessage = "Imported \(outcome.imported) watch(es)"
+                        + (outcome.skipped > 0 ? ", skipped \(outcome.skipped) invalid row(s)." : ".")
+                } catch {
+                    statusMessage = error.localizedDescription
+                }
+            }
+            .fileExporter(isPresented: $isExportingBackup, document: backupExportDocument, contentType: .data, defaultFilename: "HorologyVaultBackup.hvbackup") { result in
+                if case .failure(let error) = result {
+                    statusMessage = error.localizedDescription
+                }
+            }
+            .fileImporter(isPresented: $isImportingBackup, allowedContentTypes: [.data]) { result in
+                do {
+                    let url = try result.get()
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                    let data = try Data(contentsOf: url)
+                    passphrasePurpose = .restoringBackup(data)
+                } catch {
+                    statusMessage = error.localizedDescription
+                }
+            }
+            .alert(
+                passphrasePromptTitle,
+                isPresented: Binding(
+                    get: { passphrasePurpose != nil },
+                    set: { isPresented in if !isPresented { passphrasePurpose = nil; passphraseInput = "" } }
+                )
+            ) {
+                SecureField("Passphrase", text: $passphraseInput)
+                Button("Cancel", role: .cancel) { passphrasePurpose = nil; passphraseInput = "" }
+                Button(passphraseConfirmLabel, action: confirmPassphrase)
+            } message: {
+                Text(passphrasePromptMessage)
+            }
+            .alert("Data", isPresented: Binding(
+                get: { statusMessage != nil },
+                set: { isPresented in if !isPresented { statusMessage = nil } }
+            )) {
+                Button("OK") { statusMessage = nil }
+            } message: {
+                Text(statusMessage ?? "")
+            }
+        }
+    }
+
+    private var passphrasePromptTitle: String {
+        switch passphrasePurpose {
+        case .creatingBackup: "Set a Backup Passphrase"
+        case .restoringBackup: "Enter Backup Passphrase"
+        case nil: ""
+        }
+    }
+
+    private var passphrasePromptMessage: String {
+        switch passphrasePurpose {
+        case .creatingBackup: "This passphrase encrypts your backup file. You'll need it again to restore it — don't lose it."
+        case .restoringBackup: "Enter the passphrase used when this backup was created."
+        case nil: ""
+        }
+    }
+
+    private var passphraseConfirmLabel: String {
+        switch passphrasePurpose {
+        case .creatingBackup: "Create Backup"
+        case .restoringBackup: "Restore"
+        case nil: "OK"
+        }
+    }
+
+    private func confirmPassphrase() {
+        guard let purpose = passphrasePurpose else { return }
+        let passphrase = passphraseInput
+        passphraseInput = ""
+        passphrasePurpose = nil
+
+        switch purpose {
+        case .creatingBackup:
+            do {
+                let data = try DataBackupManager.exportEncryptedBackup(context: modelContext, passphrase: passphrase)
+                backupExportDocument = BackupDocument(data: data)
+                isExportingBackup = true
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        case .restoringBackup(let fileData):
+            do {
+                let summary = try DataBackupManager.importEncryptedBackup(fileData, passphrase: passphrase, context: modelContext)
+                NotificationManager.rescheduleAll(for: (try? modelContext.fetch(FetchDescriptor<Watch>())) ?? [])
+                statusMessage = "Restored \(summary.watchesRestored) watch(es), \(summary.strapsRestored) strap(s), \(summary.wishlistItemsRestored) wishlist item(s)"
+                    + (summary.profileRestored ? ", and your wrist profile." : ".")
+            } catch {
+                statusMessage = error.localizedDescription
+            }
         }
     }
 
@@ -64,25 +188,36 @@ struct SettingsView: View {
 
     private var dataSection: some View {
         Section {
-            // Local file I/O — implementations land alongside the CSV/backup work.
-            Button {} label: {
+            Button {
+                isImportingCSV = true
+            } label: {
                 Label("Import from CSV", systemImage: "square.and.arrow.down")
             }
-            Button {} label: {
+            Button {
+                do {
+                    csvExportDocument = CSVDocument(text: try DataBackupManager.exportWatchesCSV(context: modelContext))
+                    isExportingCSV = true
+                } catch {
+                    statusMessage = error.localizedDescription
+                }
+            } label: {
                 Label("Export to CSV", systemImage: "square.and.arrow.up")
             }
-            Button {} label: {
+            Button {
+                passphrasePurpose = .creatingBackup
+            } label: {
                 Label("Encrypted Backup", systemImage: "lock.doc")
             }
-            Button {} label: {
+            Button {
+                isImportingBackup = true
+            } label: {
                 Label("Restore from Backup", systemImage: "arrow.clockwise")
             }
         } header: {
             Text("Data")
         } footer: {
-            Text("Import, export, and encrypted backup are coming soon.")
+            Text("CSV covers your watch list; the encrypted backup captures your entire collection, including straps, service history, wear log, and provenance documents.")
         }
-        .disabled(true)
     }
 
     // MARK: Purchase Status

@@ -180,26 +180,30 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   toggle is present in the row UI but disabled pending V2.
 - **Maintenance:** `MaintenanceView` splits watches into Service Due / Up to Date via `Watch.isServiceDue`
   (3-year interval), rows push into `WatchDetailView`.
-- **Settings:** wrist profile editing (auto-creates a `UserProfile` if none exists), stubbed/disabled Data
-  section (CSV import/export, encrypted backup/restore), stubbed Purchase section (hardcoded "Full
-  Version" label, disabled Restore Purchase button), About section.
+- **Settings:** wrist profile editing (auto-creates a `UserProfile` if none exists), a working Data section
+  (CSV import/export, encrypted backup/restore — see the Data import/export bullet below), stubbed Purchase
+  section (hardcoded "Full Version" label, disabled Restore Purchase button), About section.
 - **Maintenance reminders:** `NotificationManager` schedules a local `UNNotificationRequest` per watch on
   its computed `serviceDueDate` (`Watch.lastServiceDate ?? acquisitionDate` + 3 years, the same math
   `MaintenanceView` uses), requests authorization once at launch, and reschedules/cancels on watch create,
   edit, service log, and delete.
+- **Data import/export & encrypted backup:** `DataBackupManager` wires up all four buttons in
+  `SettingsView`'s Data section — CSV export/import of the watch list, and an encrypted (CryptoKit
+  AES-GCM, passphrase-derived key) full-collection backup/restore covering watches, straps, service
+  records, wear logs, provenance docs, wishlist items, and the wrist profile. Restore is additive rather
+  than replace-all.
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–5 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders) are
-complete — see 5.1. Remaining gaps, in the order Section 6 tackles them:
+Phases 1–6 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data
+import/export & backup) are complete — see 5.1. Remaining gaps, in the order Section 6 tackles them:
 
-1. **Data import/export & encrypted backup** — the Data section's buttons in Settings are no-ops.
-2. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
-3. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
+1. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
+2. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
    the app is fully open with zero gating, so none of the demo-mode scaffolding Section 8 (StoreKit 2
    Purchase Flow) calls for is in place yet.
-4. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
-5. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
+3. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
+4. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
    `Horology VaultTests` still only has the example Swift Testing case.
 
 ## 6. Next Implementation Steps (Ordered Plan)
@@ -269,11 +273,26 @@ which made the rest of the Workbench feel like a read-only display.
 - Notification identifiers are derived from `watch.persistentModelID` (stable from insert onward in
   SwiftData) rather than a new stored field, so no schema/migration change was needed for this phase.
 
-### Phase 6 — Data import/export & encrypted backup
-- Wire up the four no-op buttons in `SettingsView`'s Data section: CSV export/import for `Watch` (and
-  probably `Strap`/`ServiceRecord`), and an encrypted local backup/restore (e.g. CryptoKit-encrypted JSON
-  snapshot of the SwiftData store to a file the user picks via the same macOS file-importer / iOS
-  document-picker pattern already in place).
+### Phase 6 — Data import/export & encrypted backup ✅ Done (2026-07-14)
+- Added `DataBackupManager.swift`: CSV export/import for `Watch`'s core fields (brand, model, reference
+  number, complications, measurements, acquisition date — a flat format can't represent nested straps/
+  service/wear/provenance, so those are left to the backup path below) via a small hand-rolled RFC4180-ish
+  CSV encoder/parser (no external dependency); and an encrypted full-collection backup/restore — a
+  `Codable` snapshot of every `Watch` (with its embedded service records, wear logs, and provenance docs),
+  every `Strap` (linked back to its watch by array index within the same payload), `WishlistItem`s, and the
+  `UserProfile`, JSON-encoded and sealed with CryptoKit `AES.GCM` using a key derived from a user-entered
+  passphrase (`SHA256` hash, no PBKDF2/salt — this only needs to deter casual access to a local file, not
+  resist a targeted offline attack, so the added complexity wasn't worth it for V1).
+- Wired all four buttons in `SettingsView`'s Data section to real actions: CSV export/import use
+  `.fileExporter`/`.fileImporter` with `FileDocument`-conforming `CSVDocument`/`BackupDocument` wrapper
+  types; the encrypted backup/restore paths prompt for a passphrase via a `SecureField`-based `.alert`
+  before sealing/opening the file.
+- **Restore is additive, not destructive:** imported records are inserted alongside whatever's already in
+  the store rather than replacing the collection outright, since a silent full wipe-and-replace is a much
+  easier way to lose data than a merge is to create duplicates. Revisit this if users ask for true
+  replace-on-restore — flagged as an open decision in Section 9.
+- Restoring a backup also calls `NotificationManager.rescheduleAll(for:)` so newly-restored watches get
+  their maintenance reminders immediately rather than waiting for the next app launch.
 
 ### Phase 7 — Authorized service center directory
 - Add a bundled static dataset (JSON in the app bundle) and a simple browse/search view. Lowest priority of
@@ -367,6 +386,10 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
   small hand-curated set of affiliate links, refreshed manually) before investing in the full
   scraping/API-driven pricing proxy from Section 2.4 — validates the app's clearest differentiator cheaply
   before committing ongoing backend cost to it.
+- **(Added 2026-07-14, from Phase 6)** Whether "Restore from Backup" should stay additive (current
+  behavior — imported records are inserted alongside the existing collection) or gain a true
+  replace-all-with-backup mode; additive was chosen to avoid a silent full-collection wipe, but a power
+  user restoring onto a fresh install may expect exact replacement instead.
 
 ## 10. Competitive Positioning (Market Research, 2026-07-13)
 

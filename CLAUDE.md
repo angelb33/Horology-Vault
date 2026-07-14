@@ -13,17 +13,18 @@ deleted and `ContentView.swift` hosts the sidebar-driven `NavigationSplitView`. 
 Workbench") now has a working create/edit flow for every section it shows — Edit Watch, Delete Watch, Log
 Service, Add/Attach Strap, Log Wear, Add Provenance Document — so the app is no longer a read-only display
 once a watch exists. `NotificationManager.swift` schedules a local "service due" reminder per watch (see
-Architecture below), so Maintenance is no longer a read-only list either. Only `Entitlements` from the plan
-is still unmodeled: nothing in the app currently reads or writes any unlock state, so the app is fully open
-with zero purchase gating. The intended product and technical design live in
+Architecture below), so Maintenance is no longer a read-only list either, and `DataBackupManager.swift`
+wires up `SettingsView`'s CSV export/import and encrypted backup/restore buttons. Only `Entitlements` from
+the plan is still unmodeled: nothing in the app currently reads or writes any unlock state, so the app is
+fully open with zero purchase gating. The intended product and technical design live in
 `horology_vault_monetization_plan.md` at the repo root — read it before implementing features, since it
 defines the full planned data model (`Watches`, `Straps`, `ServiceHistory`, `WearLog`, `Wishlist`,
 `ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1 (one-time purchase, fully
 local/offline) vs. V2 (subscription, needs backend services) feature split, the planned SwiftUI view
 hierarchy, and the StoreKit 2 purchase flow. Section 5 of that doc tracks exactly what's built vs.
-outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–5 (core CRUD
-gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders) are done; Phases 6–9 (import/export/
-backup, service center directory, Entitlements/StoreKit 2, and tests) are not started. Treat that doc as the
+outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–6 (core CRUD
+gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data import/export & backup) are done;
+Phases 7–9 (service center directory, Entitlements/StoreKit 2, and tests) are not started. Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -105,10 +106,11 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   (standalone watch picker embedding `FitDiagramView`, a `Canvas`-based top-down lug-to-lug-vs-wrist diagram
   with a fits/overhangs verdict), `WishlistView` (list of `WishlistItem`, price-alert toggle present but
   disabled pending V2), `MaintenanceView` (watches split into Service Due / Up to Date via
-  `Watch.isServiceDue`, rows push into `WatchDetailView`), `SettingsView` (wrist profile editing, stubbed/
-  disabled Data and Purchase sections pending CSV/backup and StoreKit work). `NotificationManager.swift` (a
-  static-only enum, not a view) schedules/cancels the local "service due" reminder per watch — see
-  Persistence below for the due-date math it shares with `Watch.isServiceDue`.
+  `Watch.isServiceDue`, rows push into `WatchDetailView`), `SettingsView` (wrist profile editing, a working
+  Data section — CSV export/import + encrypted backup/restore, see `DataBackupManager` below — and a still-
+  stubbed/disabled Purchase section pending StoreKit work). `NotificationManager.swift` (a static-only enum,
+  not a view) schedules/cancels the local "service due" reminder per watch — see Persistence below for the
+  due-date math it shares with `Watch.isServiceDue`.
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,
@@ -121,7 +123,15 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   3-year clock), and both delete paths (`WatchDetailView`'s toolbar Delete, `VaultGridView`'s context-menu
   Delete); `ContentView` requests notification authorization and reschedules every watch once at launch.
   Reminder identifiers are derived from `watch.persistentModelID` rather than a new stored field — no
-  schema change was needed for this feature. `Watch` also has an optional `referenceNumber`. `Strap` has optional
+  schema change was needed for this feature. `DataBackupManager.swift` (also static-only, no view) provides
+  the Data section's four operations: `exportWatchesCSV`/`importWatchesCSV` (a flat CSV of just `Watch`'s
+  own fields, via a small hand-rolled CSV encoder/parser — no third-party dependency), and
+  `exportEncryptedBackup`/`importEncryptedBackup` (a `Codable` snapshot of the entire collection — watches
+  with their embedded service records/wear logs/provenance docs, straps linked back to a watch by array
+  index within the same payload, wishlist items, and the wrist profile — JSON-encoded then sealed with
+  CryptoKit `AES.GCM` using a key derived from a user-entered passphrase via `SHA256`, no PBKDF2/salt).
+  Restore is additive (inserts alongside the existing collection) rather than replace-all — see the
+  monetization plan's Section 9 for that as an open decision. `Watch` also has an optional `referenceNumber`. `Strap` has optional
   `name`, `lengthMM`, and `notes` fields plus a `summary` computed property (`"name · material · width mm"`,
   name omitted if unset) used consistently in pickers/labels — use `strap.summary` rather than re-deriving
   that string. `ProvenanceDoc.fileData` is `@Attribute(.externalStorage)`, same pattern as
