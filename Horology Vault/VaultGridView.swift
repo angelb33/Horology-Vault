@@ -1,6 +1,6 @@
 //
 //  VaultGridView.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/10/26.
 //
@@ -17,9 +17,12 @@ struct VaultGridView: View {
         var id: String { rawValue }
     }
 
+    @Environment(\.modelContext) private var modelContext
+
     @Query private var watches: [Watch]
     @State private var sortOption: SortOption = .brand
     @State private var isAddingWatch = false
+    @State private var watchPendingDeletion: Watch?
 
     private let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
 
@@ -51,6 +54,11 @@ struct VaultGridView: View {
                                     WatchCardView(watch: watch)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("Delete", systemImage: "trash", role: .destructive) {
+                                        watchPendingDeletion = watch
+                                    }
+                                }
                             }
                         }
                         .padding()
@@ -80,6 +88,21 @@ struct VaultGridView: View {
             }
             .sheet(isPresented: $isAddingWatch) {
                 AddWatchView()
+            }
+            .confirmationDialog(
+                "Delete \(watchPendingDeletion?.brand ?? "") \(watchPendingDeletion?.model ?? "")?",
+                isPresented: Binding(
+                    get: { watchPendingDeletion != nil },
+                    set: { isPresented in if !isPresented { watchPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let watch = watchPendingDeletion {
+                        modelContext.delete(watch)
+                    }
+                    watchPendingDeletion = nil
+                }
             }
         }
     }

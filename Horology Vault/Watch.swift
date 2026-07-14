@@ -1,6 +1,6 @@
 //
 //  Watch.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/10/26.
 //
@@ -12,6 +12,7 @@ import SwiftData
 final class Watch {
     var brand: String
     var model: String
+    var referenceNumber: String?
     var complications: [String]
     var caseDiameterMM: Double
     var lugToLugMM: Double
@@ -27,9 +28,16 @@ final class Watch {
     @Relationship(deleteRule: .cascade, inverse: \ServiceRecord.watch)
     var serviceRecords: [ServiceRecord] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \WearLog.watch)
+    var wearLogs: [WearLog] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \ProvenanceDoc.watch)
+    var provenanceDocs: [ProvenanceDoc] = []
+
     init(
         brand: String,
         model: String,
+        referenceNumber: String? = nil,
         complications: [String] = [],
         caseDiameterMM: Double,
         lugToLugMM: Double,
@@ -39,6 +47,7 @@ final class Watch {
     ) {
         self.brand = brand
         self.model = model
+        self.referenceNumber = referenceNumber
         self.complications = complications
         self.caseDiameterMM = caseDiameterMM
         self.lugToLugMM = lugToLugMM

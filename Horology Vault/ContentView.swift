@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/10/26.
 //
@@ -11,6 +11,7 @@ import SwiftData
 struct ContentView: View {
     enum Section: String, CaseIterable, Identifiable {
         case vault = "Vault"
+        case fitCalculator = "Fit Calculator"
         case wishlist = "Wishlist"
         case maintenance = "Maintenance"
         case settings = "Settings"
@@ -20,6 +21,7 @@ struct ContentView: View {
         var systemImage: String {
             switch self {
             case .vault: "clock"
+            case .fitCalculator: "ruler"
             case .wishlist: "star"
             case .maintenance: "wrench.and.screwdriver"
             case .settings: "gearshape"
@@ -43,6 +45,8 @@ struct ContentView: View {
             switch selection {
             case .vault, nil:
                 VaultGridView()
+            case .fitCalculator:
+                FitCalculatorView()
             case .wishlist:
                 WishlistView()
             case .maintenance:

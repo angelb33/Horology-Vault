@@ -1,5 +1,12 @@
 # Horology Vault — Hybrid Monetization Plan
 
+> **Revision note (2026-07-13):** Sections 1–4 below are the original product/technical plan and are
+> unchanged. Sections 5 and 6 were added 2026-07-12 after reviewing the codebase against this plan, and are
+> updated again as of 2026-07-13 now that Phases 1–4 of Section 6's plan have shipped. What used to be
+> Sections 5–7 (SwiftUI View Hierarchy, StoreKit 2 Purchase Flow, Open Decisions) are renumbered to 7–9 to
+> make room. Read Section 5 for what's actually built today and Section 6 for the ordered plan to close the
+> gap with V1 scope.
+
 ## 1. Feature-to-Tier Table
 
 ### One-Time Purchase (core app — local-only, zero marginal cost per user)
@@ -119,7 +126,155 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 - Turn on the subscription-gated screens: Strap Recommendations, Market Value, Wishlist price alerts, Cloud Sync, Community, Insurance PDF export.
 - Existing V1 customers see this as a new optional upsell in an app update — no migration, no breaking changes to their local data.
 
-## 5. SwiftUI View Hierarchy (V1)
+## 5. Implementation Status (as of 2026-07-13)
+
+### 5.1 Built so far
+
+- **Data layer:** `Watch`, `Strap`, `ServiceRecord`, `UserProfile`, `WishlistItem`, `WearLog`, and
+  `ProvenanceDoc` SwiftData models exist and are registered in the `Schema([...])` in
+  `Horology_Vault_App.swift`. `Watch` also carries a `referenceNumber: String?` (manufacturer reference
+  number, e.g. "214270") that wasn't in the original data model but fits naturally alongside brand/model.
+  `WearLog` (`dateWorn`, `notes`) and `ProvenanceDoc` (`docType` enum: receipt/warranty/appraisal,
+  `.externalStorage` file data, `fileName`, `dateAdded`) both cascade-delete with their owning `Watch`, same
+  as `ServiceRecord`. `Strap` gained optional `name`, `lengthMM`, and `notes` fields plus a `summary`
+  computed property used consistently in pickers/labels.
+- **Navigation shell:** `ContentView` hosts the root `NavigationSplitView` with the sidebar sections this
+  plan calls for — Vault, Fit Calculator, Wishlist, Maintenance, Settings — matching Section 7 below.
+- **Vault:** `VaultGridView` (adaptive grid, sort by brand/acquisition date/case size, empty state, "+" →
+  `AddWatchView` sheet, context-menu Delete with a `confirmationDialog`) → `WatchCardView` (photo thumbnail
+  smart-cropped via on-device Vision saliency detection so the crop centers on the subject rather than the
+  frame's geometric center, service-due badge) → `WatchDetailView` ("the Workbench") with Overview / Straps
+  / Service History / Wear Log / Provenance / Fit Preview sections, plus toolbar Edit and destructive Delete
+  actions.
+- **`AddWatchView`** handles both create and edit — an "Edit" button on `WatchDetailView` reopens the same
+  sheet pre-filled via a `watchToEdit` parameter. Photo capture uses `PhotosPicker` on iOS and a native file
+  importer on macOS (so it can reach any file on disk, not just what's imported into Photos.app).
+- **`AccuracyChartView`** plots `accuracyDeltaSPD` over time via Swift Charts, with an empty state.
+- **Log Service / Add Strap / Log Wear / Add Provenance Doc:** `WatchDetailView` now has a working create
+  flow for every section it shows — "Log Service…" opens `AddServiceRecordView` (date, service type,
+  accuracy delta), the Straps section's "Add New Strap…" opens `AddStrapView` (name, material, width,
+  length, notes) and immediately attaches the new strap, "Log Today" inserts a `WearLog` entry directly, and
+  "Add Document…" opens `AddProvenanceDocView` (doc type picker + `.fileImporter` for PDF/image) with
+  swipe-to-delete on the resulting list. All three sheet views are private structs defined inside
+  `WatchDetailView.swift`.
+- **Fit Calculator:** `FitDiagramView` (a `Canvas`-based top-down diagram comparing lug-to-lug against
+  wrist width, with a fits/overhangs verdict) is both a standalone sidebar screen (`FitCalculatorView` —
+  pick a watch, see the diagram) and embedded in `WatchDetailView`'s Fit Preview section, replacing the old
+  side-by-side numbers.
+- **Wishlist:** `WishlistView` (sorted list, empty state, swipe-to-delete, add sheet); the price-alert
+  toggle is present in the row UI but disabled pending V2.
+- **Maintenance:** `MaintenanceView` splits watches into Service Due / Up to Date via `Watch.isServiceDue`
+  (3-year interval), rows push into `WatchDetailView`.
+- **Settings:** wrist profile editing (auto-creates a `UserProfile` if none exists), stubbed/disabled Data
+  section (CSV import/export, encrypted backup/restore), stubbed Purchase section (hardcoded "Full
+  Version" label, disabled Restore Purchase button), About section.
+
+### 5.2 Gaps against this plan's V1 scope
+
+Phases 1–4 of Section 6 (core CRUD gaps, Wear Log, Provenance, Fit Calculator) are complete — see 5.1.
+Remaining gaps, in the order Section 6 tackles them:
+
+1. **Maintenance reminders** — `MaintenanceView` surfaces overdue watches when the screen is opened, but
+   nothing schedules an actual local notification; this plan calls for that screen's query to double as
+   what drives `UNNotificationRequest` scheduling.
+2. **Data import/export & encrypted backup** — the Data section's buttons in Settings are no-ops.
+3. **Authorized service center directory** — not implemented; no bundled dataset or view exists yet.
+4. **Entitlements** — table doesn't exist. Nothing in the app currently reads or writes any unlock state —
+   the app is fully open with zero gating, so none of the demo-mode scaffolding Section 8 (StoreKit 2
+   Purchase Flow) calls for is in place yet.
+5. **StoreKit 2 / `PurchaseManager`** — not started. The Purchase section in Settings is inert UI only.
+6. **Tests** — no automated tests exist for any model or view added since the default Xcode scaffold;
+   `Horology VaultTests` still only has the example Swift Testing case.
+
+## 6. Next Implementation Steps (Ordered Plan)
+
+Ordered to finish the local, fully-offline V1 feature set (Sections 1 and 5) before touching entitlements
+or StoreKit — gating a feature set that isn't finished yet just adds rework. Each phase lists its
+deliverables and the files it primarily touches.
+
+### Phase 1 — Close the core CRUD gaps ✅ Done (2026-07-13)
+The three most-used workflows in a "log everything about my watches" app were missing their "create" step,
+which made the rest of the Workbench feel like a read-only display.
+
+- **Log Service:** ~~add~~ Added an `AddServiceRecordView` sheet (date performed, service type, accuracy
+  delta in sec/day) opened from a new button in `WatchDetailView`'s Service History section.
+- **Add/attach Strap:** ~~add~~ Added an `AddStrapView` sheet (name, material, width, length, notes)
+  reachable from the Straps section's "Add New Strap…" button, which attaches the new strap immediately on
+  save. *Open decision (still open):* this plan's Section 1 lists "Strap Inventory" as its own feature,
+  which could eventually justify a dedicated Straps sidebar screen (browse/edit all straps independent of
+  any one watch) rather than creating them inline per-watch. Current implementation is inline creation from
+  the Workbench, since that's the only place straps are consumed today — revisit a standalone screen only
+  if strap reuse across many watches turns out to be common.
+- **Delete Watch:** ~~add~~ Added a context-menu Delete on `VaultGridView`'s grid cards (swipe doesn't apply
+  to a grid) and a destructive toolbar "Delete" action in `WatchDetailView`, both gated by a
+  `confirmationDialog`, mirroring the pattern `WishlistView` already uses.
+
+### Phase 2 — Wear Log ✅ Done (2026-07-13)
+- Added a `WearLog` `@Model` (`dateWorn`, `notes`, back-reference to `Watch`, cascade-deleted with the watch
+  like `ServiceRecord`), registered in the `Schema`.
+- Replaced `WatchDetailView`'s placeholder Wear Log section with a "Log Today" button plus a list of past
+  entries sorted newest-first. Rotation stats (Section 1's "wear tracking & rotation stats") are still a
+  fast-follow, not yet built — treat as a follow-up once there's enough logged data to make a stat
+  meaningful.
+
+### Phase 3 — Provenance ✅ Done (2026-07-13)
+- Added a `ProvenanceDoc` `@Model` (`docType` enum: receipt/warranty/appraisal, `fileData` as
+  `@Attribute(.externalStorage) Data`, `fileName`, `dateAdded`, back-reference to `Watch`, cascade-deleted
+  with the watch) — the externalStorage blob approach was chosen over a `file_path`, same reasoning as
+  `Watch.photoData`: a copied blob can't go stale the way a path to a user-moved/deleted file can.
+- Replaced `WatchDetailView`'s placeholder Provenance section with an `AddProvenanceDocView` sheet (doc
+  type picker + `.fileImporter` for PDF/image — used on both platforms here rather than the iOS
+  PhotosPicker/macOS fileImporter split `AddWatchView` uses for photos, since receipts/warranties are
+  documents that don't live in the Photos library on either platform) and a list of attached docs with
+  swipe-to-delete.
+
+### Phase 4 — Fit Calculator ✅ Done (2026-07-13)
+- Built `FitDiagramView` using SwiftUI `Canvas` — a 2D top-down comparison of a watch's `lugToLugMM`
+  against the user's `wristTopWidthCM`, with a fits/overhangs verdict, per Section 7's spec.
+- Built a standalone `FitCalculatorView` (pick a watch, see the diagram), reachable as a 5th sidebar entry
+  in `ContentView.Section` (between Vault and Wishlist) as well as from `WatchDetailView`'s Fit Preview
+  section.
+- Upgraded `WatchDetailView`'s Fit Preview section to embed `FitDiagramView` instead of the previous
+  side-by-side numbers.
+
+### Phase 5 — Maintenance reminders (local notifications)
+- Request notification authorization (once, e.g. from `SettingsView` or on first watch add).
+- Schedule a `UNNotificationRequest` per watch when it crosses into service-due territory, driven by the
+  same `isServiceDue`/due-date query `MaintenanceView` already uses, and reschedule on service log / watch
+  edit / delete.
+
+### Phase 6 — Data import/export & encrypted backup
+- Wire up the four no-op buttons in `SettingsView`'s Data section: CSV export/import for `Watch` (and
+  probably `Strap`/`ServiceRecord`), and an encrypted local backup/restore (e.g. CryptoKit-encrypted JSON
+  snapshot of the SwiftData store to a file the user picks via the same macOS file-importer / iOS
+  document-picker pattern already in place).
+
+### Phase 7 — Authorized service center directory
+- Add a bundled static dataset (JSON in the app bundle) and a simple browse/search view. Lowest priority of
+  the remaining local features since it's static reference content rather than user data.
+
+### Phase 8 — Entitlements + StoreKit 2 (V1 monetization)
+Deliberately last: gating features is cheap to retrofit once, expensive to keep re-doing as new screens
+land.
+- Add the `Entitlements` `@Model` from Section 2.2, register it in the `Schema`.
+- Build `PurchaseManager` per Section 8 (below, an `@Observable` class: loads the product, listens to
+  `Transaction.updates`, `purchase()`, reconciles `Transaction.currentEntitlements` on launch).
+- Register the non-consumable lifetime-unlock product in App Store Connect (manual dashboard step, not
+  code).
+- Implement the demo-mode gating this plan specifies: app opens read-only with `+`/create actions disabled
+  until `is_lifetime_unlocked`, with a persistent "Unlock Full Version" prompt rather than a hard paywall.
+- Wire `SettingsView`'s Purchase section to the real `PurchaseManager` (live unlock state, working Restore
+  Purchase).
+
+### Phase 9 — Tests
+Add coverage incrementally alongside each phase above rather than as one giant batch at the end, prioritizing:
+- Fit Calculator math (Phase 4) — this is pure geometry, the highest-value thing to unit test.
+- `Entitlements`/`PurchaseManager` gating logic (Phase 8) — a broken paywall either leaks the paid feature
+  set or locks out a paying customer, both expensive mistakes to ship silently.
+- Model invariants that already exist but are untested (e.g. `Watch.isServiceDue`, cascade-delete behavior
+  on `Watch` → `ServiceRecord`/`WearLog`/`ProvenanceDocs`).
+
+## 7. SwiftUI View Hierarchy (V1)
 
 Root: a single `NavigationSplitView` — renders as a sidebar + content + detail 3-column layout on macOS/iPad, and collapses to a stack on iPhone. This is the standard SwiftUI pattern for one codebase that adapts to both platforms.
 
@@ -158,7 +313,7 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 
 **Shared components used across screens:** `WatchCardView`, `AccuracyChartView` (Swift Charts), `FitDiagramView` (Canvas), `StrapPickerView` (filtered by lug width) — building these once as reusable views is what keeps the iOS and macOS targets from diverging.
 
-## 6. StoreKit 2 Purchase Flow (V1 — one-time unlock only)
+## 8. StoreKit 2 Purchase Flow (V1 — one-time unlock only)
 
 **Product:** a single non-consumable in-app purchase, e.g. `com.yourapp.horologyvault.lifetime`.
 
@@ -173,7 +328,7 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 
 **Tie-back to the Entitlements table:** this is exactly the same table designed in Section 2.2 — `PurchaseManager` is simply the iOS/macOS-specific code that keeps `is_lifetime_unlocked` accurate. When V2 adds the subscription, the same class gains a second product and starts also writing `subscription_status`, with no changes needed to how the UI reads that table.
 
-## 7. Open Decisions
+## 9. Open Decisions
 
 - Subscription price point and whether it's monthly-only or offers an annual discount.
 - Whether Wishlist price alerts ship at launch of V2 or as a fast-follow (it's the smallest of the subscription features and could be a good "prove the subscription is worth it" hook).

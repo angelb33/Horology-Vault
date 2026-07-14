@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/11/26.
 //
@@ -20,6 +20,12 @@ struct SettingsView: View {
                 purchaseStatusSection
                 aboutSection
             }
+            #if os(macOS)
+            // The default macOS Form style left-aligns its sections in a narrow
+            // column instead of centering them like System Settings; .grouped
+            // matches that centered, card-style layout.
+            .formStyle(.grouped)
+            #endif
             .navigationTitle("Settings")
             .onAppear(perform: ensureProfileExists)
         }
@@ -124,17 +130,17 @@ private struct WristMeasurementField: View {
     @Binding var value: Double
 
     var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("0", value: $value, format: .number)
-                .multilineTextAlignment(.trailing)
-                #if os(iOS)
-                .keyboardType(.decimalPad)
-                #endif
-                .frame(maxWidth: 80)
-            Text(unit)
-                .foregroundStyle(.secondary)
+        LabeledContent(label) {
+            HStack(spacing: 4) {
+                TextField("0", value: $value, format: .number)
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+                    .frame(maxWidth: 80)
+                Text(unit)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

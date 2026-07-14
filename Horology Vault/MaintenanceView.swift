@@ -1,6 +1,6 @@
 //
 //  MaintenanceView.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/11/26.
 //

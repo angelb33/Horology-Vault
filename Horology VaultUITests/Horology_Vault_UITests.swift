@@ -1,6 +1,6 @@
 //
 //  Horology_Vault_UITests.swift
-//  Horology Vault"UITests
+//  Horology VaultUITests
 //
 //  Created by Angel Burgos on 7/10/26.
 //

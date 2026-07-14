@@ -1,6 +1,6 @@
 //
 //  Horology_Vault_App.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/10/26.
 //
@@ -17,6 +17,8 @@ struct Horology_Vault_App: App {
             ServiceRecord.self,
             UserProfile.self,
             WishlistItem.self,
+            WearLog.self,
+            ProvenanceDoc.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

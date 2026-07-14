@@ -1,6 +1,6 @@
 //
 //  WishlistView.swift
-//  Horology Vault"
+//  Horology Vault
 //
 //  Created by Angel Burgos on 7/11/26.
 //
@@ -132,6 +132,12 @@ private struct AddWishlistItemView: View {
                         .lineLimit(3, reservesSpace: true)
                 }
             }
+            #if os(macOS)
+            // The default macOS Form style left-aligns its sections in a narrow
+            // column instead of centering them like System Settings; .grouped
+            // matches that centered, card-style layout.
+            .formStyle(.grouped)
+            #endif
             .navigationTitle("Add to Wishlist")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
