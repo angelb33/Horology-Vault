@@ -574,6 +574,15 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 4. On every app launch, iterating `Transaction.currentEntitlements` to reconcile the local `Entitlements` table with what StoreKit actually has on record — this is what makes "Restore Purchase" mostly automatic, since StoreKit 2 syncs entitlements without the user needing to do anything.
 5. Handling `.userCancelled` and `.pending` (e.g., Ask to Buy / parental approval) states without treating them as errors.
 
+**Known benign console warning (macOS, confirmed 2026-07-14):** calling `product.purchase()` on macOS logs
+`Adding 'NSRemoteView' as a subview of NSHostingController.view is not supported and may result in a broken
+view hierarchy...` to the console. This is a known SwiftUI/AppKit interop quirk — StoreKit 2's native
+purchase-confirmation sheet attaches to a window whose content is a pure SwiftUI `NSHostingView` (exactly
+what `WindowGroup { ContentView() }` produces), which macOS doesn't officially support, but it's cosmetic:
+the confirmation dialog still appears and the purchase still completes normally. Not caused by anything in
+this app's code, not tied to the Phase 6 sandbox-entitlement fix, and not worth chasing a workaround for
+unless it starts actually blocking the flow.
+
 **Gating decision for V1 (revised 2026-07-14):** rather than a hard paywall on first launch, let the app
 open with the Vault, Fit Calculator, and every other one-time-purchase feature fully usable — including
 adding watches — with no lifetime-unlock check at all on that path. The original design disabled "Add
