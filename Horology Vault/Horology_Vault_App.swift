@@ -32,6 +32,16 @@ struct Horology_Vault_App: App {
         }
     }()
 
+    /// `BGTaskScheduler` registration must happen before the app finishes launching — doing it
+    /// later (e.g. from a `View.task`, like everything else here does its setup) is documented by
+    /// Apple to silently fail. `sharedModelContainer`'s stored-property initializer above still
+    /// runs before this body executes, so it's safe to reference here.
+    init() {
+        #if os(iOS)
+        ScheduledBackupManager.registerBackgroundTask(container: sharedModelContainer)
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

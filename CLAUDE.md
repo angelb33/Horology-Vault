@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project state
 
 The Xcode default template has been replaced with the real app, and V1's local-only feature set (Section 1
-of the monetization plan) is now fully built out — Phases 1–11 of Section 6's ordered plan are all done. The
+of the monetization plan) is now fully built out — Phases 1–12 of Section 6's ordered plan are all done. The
 SwiftData model layer (`Watch.swift`, `Strap.swift`,
 `ServiceRecord.swift`, `UserProfile.swift`, `WishlistItem.swift`, `WearLog.swift`, `ProvenanceDoc.swift`) and
 the Vault UI (`VaultGridView.swift`, `WatchCardView.swift`, `WatchDetailView.swift`, `AccuracyChartView.swift`,
@@ -44,7 +44,12 @@ shipped 2026-07-14: **Phase 10** (Appearance — `ColorSchemePreference`/`Accent
 computed property, `Watch.wearCountSinceLastService`, covered by 4 new tests in `WatchModelTests.swift`).
 Both build cleanly, the full test suite passes (37/37), and the UI itself was manually confirmed working by
 the user directly in Xcode (the sandbox this work was implemented in has no Screen Recording/Apple Events
-permission, so that verification step couldn't happen from inside the session). Nothing remains against
+permission, so that verification step couldn't happen from inside the session). A twelfth phase was added
+and shipped 2026-07-15: **Phase 12** (Scheduled Automatic Encrypted Backup — `KeychainHelper.swift` and
+`ScheduledBackupManager.swift`, see Architecture below). Build succeeds on both platforms and the full test
+suite passes (10 new cases); end-to-end manual verification (folder picked, passphrase set, a `.hvbackup`
+file actually appearing unattended) is still outstanding, same sandbox-interaction limitation as Phases
+10–11. Nothing else remains against
 this plan's V1 scope. Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

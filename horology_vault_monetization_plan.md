@@ -20,6 +20,22 @@
 > was implemented in has no Screen Recording/Apple Events permission to do that verification itself. Neither
 > feature needed a schema change beyond one new computed property on `Watch` (see Phase 11) — both build
 > entirely on data the app already collects.
+>
+> **Revision note (2026-07-15):** Added **Phase 12, Scheduled Automatic Encrypted Backup** — reuses the
+> existing manual encrypted backup format with a Keychain-stored passphrase and a user-picked destination
+> folder, on a Daily/Weekly/Monthly schedule, fully silent once configured. New files: `KeychainHelper.swift`
+> (no Keychain code existed before this) and `ScheduledBackupManager.swift` (the first `#if os(...)`
+> branching in this app's scheduling code — iOS's `BGTaskScheduler` and macOS's
+> `NSBackgroundActivityScheduler` are unrelated APIs). Two platform-configuration unknowns were resolved
+> empirically rather than assumed: iOS needed a small supplemental `Info-iOS-BackgroundTasks.plist` merged
+> in via `INFOPLIST_FILE` (custom keys like `BGTaskSchedulerPermittedIdentifiers` don't synthesize through
+> this project's `INFOPLIST_KEY_*` build settings the way its other Info.plist keys do), while macOS needed
+> no new entitlement — the `com.apple.security.files.user-selected.read-write` fix from this same session's
+> Phase 6 work already covers persisting a security-scoped bookmark across relaunches. Build succeeds on
+> both platforms, full test suite passing including 10 new cases covering the pure due-date math; end-to-end
+> manual verification (folder picked, passphrase set, a `.hvbackup` file actually appearing unattended)
+> still needs a pass by the user in Xcode, same sandbox-interaction limitation as every other UI-dependent
+> feature this session.
 
 ## 1. Feature-to-Tier Table
 
@@ -39,6 +55,7 @@
 | Authorized service center directory | Static dataset, refreshed via app updates rather than a live feed | Niche — only Bezelio (service-log-only) is adjacent, nobody bundles a directory |
 | Appearance: light/dark mode override + predetermined accent color theming | Pure local UI preference (`@AppStorage`), no external data | Table stakes — most collection-tracker apps already follow/override system appearance; accent color choice is a low-cost polish item, not a differentiator on its own |
 | Insights dashboard (wear frequency, service status, wear-vs-maintenance correlation, collection growth) | Local aggregation/charting of data the user already owns (`WearLog`, `ServiceRecord`, `Watch`) via Swift Charts | Mixed — WatchGrid already ships a stats dashboard (value, brand distribution, see §10), so *having* a dashboard is table stakes; the wear-vs-maintenance correlation chart specifically (flagging watches worn heavily since their last service) wasn't seen in any surveyed competitor and is this feature's actual differentiating angle |
+| Scheduled automatic encrypted backup (Keychain-stored passphrase, user-picked folder, Daily/Weekly/Monthly) | Local file I/O + local OS scheduling (`BGTaskScheduler`/`NSBackgroundActivityScheduler`), no server | Niche — no surveyed competitor offers hands-off scheduled local backup; existing manual encrypted backup is already table stakes, this just removes the "remembering to do it" step |
 
 ### Optional Subscription (needs an always-on backend — cost scales with usage)
 
@@ -507,6 +524,98 @@ free.
   the user directly in Xcode, confirming the Insights tab and all four charts render correctly against
   their real collection.
 
+### Phase 12 — Scheduled automatic encrypted backup ✅ Done (2026-07-15)
+The existing manual "Encrypted Backup" button (Phase 6) only runs when the user remembers to tap it — this
+phase automates it: fully silent, no user interaction once configured, reusing the same encrypted
+`.hvbackup` format rather than switching to CSV, since the user explicitly chose full-collection coverage
+over the simpler-but-partial CSV path.
+
+- Added `Horology Vault/KeychainHelper.swift`: a static-only enum (matching `NotificationManager`/
+  `DataBackupManager`'s style) storing the scheduled-backup passphrase in the Keychain
+  (`kSecClassGenericPassword`, `service` = bundle identifier, `account` = a fixed constant) —
+  `savePassphrase`/`readPassphrase`/`deletePassphrase`. `savePassphrase` tries `SecItemUpdate` first,
+  falling back to `SecItemAdd` on `errSecItemNotFound`, so changing the passphrase doesn't need a separate
+  delete step. There was no Keychain code anywhere in this project before this phase.
+- Added `Horology Vault/ScheduledBackupManager.swift`: another static-only enum, owning:
+  - `BackupFrequency` (`daily`/`weekly`/`monthly`) — lives here rather than in `SettingsView.swift`, unlike
+    `ColorSchemePreference`/`AccentColorOption`, because it has a real logic owner (matches how
+    `SubscriptionStatus` lives in `Entitlements.swift`, not in the view that displays it).
+  - `isBackupDue(frequency:lastRunDate:now:calendar:) -> Bool` — the pure, testable due-date math, using
+    `calendar.date(byAdding:)` rather than a flat day count so "Monthly" tracks a calendar month instead of
+    a hardcoded 30 days. `now`/`calendar` are injected parameters, same testability pattern as
+    `PurchaseManager.updateEntitlementsRecord(unlocked:in:now:)`.
+  - `resolveBookmarkedFolderURL`/`createFolderBookmark` — security-scoped bookmark handling for the
+    user-picked destination folder, with a real macOS/iOS split: macOS needs `.withSecurityScope` on both
+    creation and resolution (that option doesn't exist on iOS, where document-picker URLs are implicitly
+    security-scoped). This is the first persisted (cross-launch) security-scoped bookmark anywhere in this
+    project — the four pre-existing `.fileImporter` usages were all transient, single-file picks.
+  - `performBackupIfDue(context:now:)` — the orchestration: reads settings from `UserDefaults.standard`
+    directly rather than `@AppStorage` (a static enum can't hold property wrappers), checks `isBackupDue`,
+    resolves the bookmark, `startAccessingSecurityScopedResource()`, reads the Keychain passphrase, calls
+    the existing `DataBackupManager.exportEncryptedBackup(context:passphrase:)` unchanged, writes
+    `HorologyVaultBackup-<yyyy-MM-dd>.hvbackup` into the folder. **Only updates the last-run timestamp on
+    full success** — a missing passphrase, unresolvable bookmark, or write failure leaves the due-check
+    retriable next time rather than marking a failed cycle as done.
+  - `#if os(iOS) registerBackgroundTask`/`scheduleNextBackgroundTask` — `BGProcessingTask`
+    (`requiresNetworkConnectivity = false`, `requiresExternalPower = false`), re-submitted after every
+    launch registration and every run since BGTaskScheduler requests are one-shot, not naturally recurring.
+  - `#if os(macOS) startBackgroundActivityScheduler` — `NSBackgroundActivityScheduler`, hourly, since the
+    user confirmed macOS only needs to run while the app is alive (foreground or background) — explicitly
+    no LaunchAgent/SMAppService helper, ruled out as unnecessary complexity for this app.
+  - This is the **first** `#if os(...)` branching this scheduling area needs — `NotificationManager` has
+    zero platform branches since `UNUserNotificationCenter` is already unified; `BGTaskScheduler` vs.
+    `NSBackgroundActivityScheduler` are fundamentally different APIs with no shared abstraction worth
+    building for two call sites.
+- **Launch-time catch-up**: since `BGTaskScheduler` is opportunistic (the OS decides when it actually
+  fires, can skip days), `ContentView`'s existing `.task` also calls
+  `ScheduledBackupManager.performBackupIfDue(context:)` directly on every launch, in addition to registering
+  the periodic schedulers — otherwise "automatic" could silently mean weeks with no backup on iOS if the
+  app isn't used regularly. Confirmed with the user as a deliberate choice, not an oversight.
+- **Free/ungated**, consistent with Section 9's existing decision that data export/backup should never be
+  gated — this is the same feature, just automated. Confirmed with the user rather than assumed.
+- `Horology_Vault_App.swift` gained an explicit `init()` (there was none before) calling
+  `ScheduledBackupManager.registerBackgroundTask(container:)` under `#if os(iOS)` — `BGTaskScheduler`
+  registration is documented by Apple to silently fail if it happens any later than this (e.g. from a
+  `View.task`, which is how every other piece of launch-time setup in this app works). Swift's
+  initialization order guarantees `sharedModelContainer`'s existing stored-property initializer still runs
+  before this `init()` body executes, so referencing it directly here is safe.
+- `SettingsView.swift` gained a new "Scheduled Backup" section (inserted after the existing "Data" section):
+  an enable/disable `Toggle`, a "Backup Folder" row with a picker button (a **new, isolated-anchor**
+  `.fileImporter` with `allowedContentTypes: [.folder]`, its own `.background { EmptyView().fileImporter(...) }`
+  block — not stacked alongside the four pre-existing exporters/importers, per the modifier-collision bug
+  already hit and fixed once in this same file this session), a `Frequency` picker, and passphrase
+  setup/change reusing the existing `PassphrasePurpose` alert flow via a new `.settingScheduledBackupPassphrase`
+  case (writes to `KeychainHelper` instead of exporting), plus a "Remove Stored Passphrase" action shown only
+  when one is currently stored. Disabling the toggle does **not** delete the stored passphrase, so
+  re-enabling doesn't force re-entry.
+- Two platform-configuration unknowns were resolved empirically, not assumed, before writing feature code:
+  - **iOS**: `BGTaskSchedulerPermittedIdentifiers` (a custom string array) and `UIBackgroundModes`
+    (`processing`) don't synthesize via `INFOPLIST_KEY_*` build settings the way this project's other
+    Info.plist keys (scene manifest, orientations) do — those keys were silently dropped from the compiled
+    plist when tried. Fixed by adding a small supplemental `Horology Vault/Info-iOS-BackgroundTasks.plist`
+    and pointing `"INFOPLIST_FILE[sdk=iphoneos*]"`/`"INFOPLIST_FILE[sdk=iphonesimulator*]"` at it —
+    confirmed via `PlistBuddy` that Xcode merges this with the still-`GENERATE_INFOPLIST_FILE`-synthesized
+    content rather than replacing it (both the new custom keys and the pre-existing synthesized ones, e.g.
+    `CFBundleIdentifier`, showed up correctly in the compiled `Info.plist`). Scoped to iOS SDKs only via the
+    same `[sdk=...]` qualifier pattern already used elsewhere in this target; confirmed the macOS build is
+    unaffected.
+  - **macOS**: persisting a security-scoped bookmark across app relaunches needs
+    `com.apple.security.files.user-selected.read-write` — confirmed via `codesign -d --entitlements :-`
+    that this project already has it, from this session's earlier Phase 6 sandbox-entitlement fix
+    (`ENABLE_USER_SELECTED_FILES = readwrite`). No new `.entitlements` file was needed.
+- Test coverage: `Horology VaultTests/ScheduledBackupManagerTests.swift` covers only `isBackupDue` (never
+  run before → always due for all three frequencies; run one hour ago → not due for all three; a
+  just-over/just-under boundary pair for each of Daily/Weekly/Monthly; an exactly-on-the-boundary case) —
+  10 cases total, all passing. Deliberately does **not** attempt to test `BGTaskScheduler`,
+  `NSBackgroundActivityScheduler`, Keychain, or real file I/O, matching this project's established
+  precedent (same reasoning already applied to StoreKit's live system calls).
+- Verified via `xcodebuild build` on both macOS and iOS Simulator, `xcodebuild test` (full suite green,
+  including the 10 new cases), and the two empirical platform-configuration checks above. **Not yet
+  manually verified end-to-end** (enable the feature, pick a folder, set a passphrase, force a due backup,
+  confirm a `.hvbackup` file actually appears with no further interaction) — this sandbox can't drive that
+  live interaction, same limitation noted for every UI-dependent feature this session; needs a pass by the
+  user in Xcode.
+
 ## 7. SwiftUI View Hierarchy (V1)
 
 Root: a single `NavigationSplitView` — renders as a sidebar + content + detail 3-column layout on macOS/iPad, and collapses to a stack on iPhone. This is the standard SwiftUI pattern for one codebase that adapts to both platforms.
@@ -558,6 +667,8 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
   default, plus red/orange/yellow/green/teal/purple/pink).
 - Wrist profile (`wrist_top_width_cm`, `wrist_side_depth_cm`).
 - Data: CSV import/export, encrypted local backup/restore.
+- Scheduled Backup: enable/disable toggle, backup folder picker, Daily/Weekly/Monthly frequency, Keychain
+  passphrase setup/change/remove — automates the Data section's manual encrypted backup on a schedule.
 - Purchase status: shows unlock state, includes a **Restore Purchase** button (still recommended even with StoreKit 2's automatic entitlement sync — Apple's review guidelines expect one).
 - About/support.
 
@@ -631,6 +742,41 @@ than first-time browsers" features, same reasoning as Insights) but were left op
   reasoning as Insights) but left open in this pass. Explicitly ruled out: gating **data export/backup**,
   since restricting a user's ability to get their own data out reads as hostile rather than as a value-add,
   regardless of its conversion potential.
+- **(Added 2026-07-15, possible add-on, not scoped as a phase)** A third export format — plain,
+  **unencrypted, user-editable JSON** covering the full collection graph (same shape `DataBackupManager`
+  already uses internally for the encrypted backup: `BackupPayload`/`WatchBackup`/`StrapBackup`/etc.) — sits
+  between today's two options: CSV only covers the flat watch list, and the encrypted backup covers
+  everything but is deliberately opaque (AES-sealed, meant as a restore point, not something to hand-edit).
+  Real challenges identified if this gets picked up, not just "skip the `encrypt()` call":
+  - `WatchBackup.photoData`/`ProvenanceDocBackup.fileData` are raw `Data`, which JSON-encodes as inline
+    base64 — makes the file much less human-editable than the pitch implies, since the fields someone would
+    actually want to tweak get buried under blob noise.
+  - `StrapBackup.attachedWatchIndex: Int?` links a strap to a watch by its *array position* in the JSON,
+    not a stable ID — fine for a machine round-trip, silently wrong (or silently dropped, per the existing
+    `insertedWatches.indices.contains(index)` guard) if a person reorders/adds/removes a watch entry by
+    hand. Would need a real ID-based reference instead of positional linking.
+  - `Decodable` failures are all-or-nothing today (one bad field fails the whole file), unlike CSV import's
+    existing skip-and-report-invalid-rows behavior — a hand-edited file is far likelier to have one small
+    mistake than to be entirely wrong, so this would need the same per-entry-recovery treatment CSV already
+    has, plus surfacing `DecodingError`'s `codingPath` instead of a generic "corrupt file" message.
+  - No business-rule validation exists beyond shape-checking (a negative `caseDiameterMM` or nonsense date
+    would decode fine today) — currently harmless since only the app itself ever produces this payload, but
+    not once a human can type into it directly.
+  - Would also want a `schemaVersion` field so future format changes don't silently corrupt older
+    hand-saved exports.
+  Rough sizing: more than a quick add, but not a big rewrite either — closer to a half-day feature once
+  properly scoped. Not queued as a numbered phase; revisit if a user actually asks for bulk-editable export.
+- **(Added 2026-07-15, from Phase 12)** Confirmed choices for Scheduled Backup, recorded so future sessions
+  don't re-litigate them: ungated/free (same reasoning as the existing manual export/backup exclusion);
+  launch-time catch-up runs in addition to the periodic OS schedulers (iOS's `BGTaskScheduler` is
+  opportunistic enough that periodic-only could mean silent multi-week gaps); Weekly default frequency;
+  the Keychain-stored passphrase survives disabling the toggle (an explicit "Remove Stored Passphrase"
+  action exists for anyone who wants it gone specifically, rather than deleting automatically on disable).
+- **(Added 2026-07-15, from Phase 12)** Whether the `NSBackgroundActivityScheduler`'s hourly check interval
+  is fine as a fixed constant or should scale with the chosen frequency (e.g. a Monthly-only user doesn't
+  need an hourly wake-up) — left as a flat hourly poll for now since `performBackupIfDue`'s own due-check is
+  cheap and the actual enforcement of frequency happens there, not in the poll interval; revisit only if
+  the poll frequency itself turns out to have a real battery/CPU cost worth trimming.
 
 ## 10. Competitive Positioning (Market Research, 2026-07-13)
 

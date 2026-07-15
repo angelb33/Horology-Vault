@@ -80,6 +80,10 @@ struct ContentView: View {
             purchaseManager.configure(modelContext: modelContext)
             await purchaseManager.loadProduct()
             await purchaseManager.reconcileEntitlementsOnLaunch()
+            #if os(macOS)
+            ScheduledBackupManager.startBackgroundActivityScheduler(context: modelContext)
+            #endif
+            _ = ScheduledBackupManager.performBackupIfDue(context: modelContext)
         }
     }
 

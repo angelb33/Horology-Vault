@@ -30,11 +30,18 @@ struct SettingsView: View {
     private enum PassphrasePurpose {
         case creatingBackup
         case restoringBackup(Data)
+        case settingScheduledBackupPassphrase
     }
     @State private var passphrasePurpose: PassphrasePurpose?
     @State private var passphraseInput = ""
 
     @State private var statusMessage: String?
+
+    @AppStorage(ScheduledBackupManager.enabledKey) private var isScheduledBackupEnabled = false
+    @AppStorage(ScheduledBackupManager.frequencyKey) private var scheduledBackupFrequency: ScheduledBackupManager.BackupFrequency = .weekly
+    @AppStorage(ScheduledBackupManager.folderBookmarkKey) private var scheduledBackupFolderBookmark: Data?
+    @State private var isPickingBackupFolder = false
+    @State private var hasStoredBackupPassphrase = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +49,7 @@ struct SettingsView: View {
                 appearanceSection
                 wristProfileSection
                 dataSection
+                scheduledBackupSection
                 purchaseStatusSection
                 aboutSection
             }
@@ -53,39 +61,70 @@ struct SettingsView: View {
             #endif
             .navigationTitle("Settings")
             .onAppear(perform: ensureProfileExists)
-            .fileExporter(isPresented: $isExportingCSV, document: csvExportDocument, contentType: .commaSeparatedText, defaultFilename: "HorologyVaultWatches") { result in
-                if case .failure(let error) = result {
-                    statusMessage = error.localizedDescription
-                }
+            .onAppear { hasStoredBackupPassphrase = KeychainHelper.readPassphrase() != nil }
+            // Each fileExporter/fileImporter gets its own EmptyView anchor rather than being
+            // stacked directly on this NavigationStack — multiple modifiers of the identical
+            // kind attached to one view can collide in SwiftUI (only the last-attached one of
+            // each kind ends up wired for presentation), which is what silently broke CSV
+            // export/import here while the later-attached Backup ones worked.
+            .background {
+                EmptyView()
+                    .fileExporter(isPresented: $isExportingCSV, document: csvExportDocument, contentType: .plainText, defaultFilename: "HorologyVaultWatches") { result in
+                        if case .failure(let error) = result {
+                            statusMessage = error.localizedDescription
+                        }
+                    }
             }
-            .fileImporter(isPresented: $isImportingCSV, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
-                do {
-                    let url = try result.get()
-                    let didAccess = url.startAccessingSecurityScopedResource()
-                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-                    let text = try String(contentsOf: url, encoding: .utf8)
-                    let outcome = try DataBackupManager.importWatchesCSV(text, context: modelContext)
-                    statusMessage = "Imported \(outcome.imported) watch(es)"
-                        + (outcome.skipped > 0 ? ", skipped \(outcome.skipped) invalid row(s)." : ".")
-                } catch {
-                    statusMessage = error.localizedDescription
-                }
+            .background {
+                EmptyView()
+                    .fileImporter(isPresented: $isImportingCSV, allowedContentTypes: [.plainText]) { result in
+                        do {
+                            let url = try result.get()
+                            let didAccess = url.startAccessingSecurityScopedResource()
+                            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                            let text = try String(contentsOf: url, encoding: .utf8)
+                            let outcome = try DataBackupManager.importWatchesCSV(text, context: modelContext)
+                            statusMessage = "Imported \(outcome.imported) watch(es)"
+                                + (outcome.skipped > 0 ? ", skipped \(outcome.skipped) invalid row(s)." : ".")
+                        } catch {
+                            statusMessage = error.localizedDescription
+                        }
+                    }
             }
-            .fileExporter(isPresented: $isExportingBackup, document: backupExportDocument, contentType: .data, defaultFilename: "HorologyVaultBackup.hvbackup") { result in
-                if case .failure(let error) = result {
-                    statusMessage = error.localizedDescription
-                }
+            .background {
+                EmptyView()
+                    .fileExporter(isPresented: $isExportingBackup, document: backupExportDocument, contentType: .data, defaultFilename: "HorologyVaultBackup.hvbackup") { result in
+                        if case .failure(let error) = result {
+                            statusMessage = error.localizedDescription
+                        }
+                    }
             }
-            .fileImporter(isPresented: $isImportingBackup, allowedContentTypes: [.data]) { result in
-                do {
-                    let url = try result.get()
-                    let didAccess = url.startAccessingSecurityScopedResource()
-                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-                    let data = try Data(contentsOf: url)
-                    passphrasePurpose = .restoringBackup(data)
-                } catch {
-                    statusMessage = error.localizedDescription
-                }
+            .background {
+                EmptyView()
+                    .fileImporter(isPresented: $isImportingBackup, allowedContentTypes: [.data]) { result in
+                        do {
+                            let url = try result.get()
+                            let didAccess = url.startAccessingSecurityScopedResource()
+                            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                            let data = try Data(contentsOf: url)
+                            passphrasePurpose = .restoringBackup(data)
+                        } catch {
+                            statusMessage = error.localizedDescription
+                        }
+                    }
+            }
+            .background {
+                EmptyView()
+                    .fileImporter(isPresented: $isPickingBackupFolder, allowedContentTypes: [.folder]) { result in
+                        do {
+                            let url = try result.get()
+                            let didAccess = url.startAccessingSecurityScopedResource()
+                            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                            scheduledBackupFolderBookmark = try ScheduledBackupManager.createFolderBookmark(for: url)
+                        } catch {
+                            statusMessage = error.localizedDescription
+                        }
+                    }
             }
             .alert(
                 passphrasePromptTitle,
@@ -115,6 +154,7 @@ struct SettingsView: View {
         switch passphrasePurpose {
         case .creatingBackup: "Set a Backup Passphrase"
         case .restoringBackup: "Enter Backup Passphrase"
+        case .settingScheduledBackupPassphrase: "Set Automatic Backup Passphrase"
         case nil: ""
         }
     }
@@ -123,6 +163,7 @@ struct SettingsView: View {
         switch passphrasePurpose {
         case .creatingBackup: "This passphrase encrypts your backup file. You'll need it again to restore it — don't lose it."
         case .restoringBackup: "Enter the passphrase used when this backup was created."
+        case .settingScheduledBackupPassphrase: "Stored securely in the Keychain so automatic backups can run without prompting you each time. You'll need it to restore any backup this creates — don't lose it."
         case nil: ""
         }
     }
@@ -131,6 +172,7 @@ struct SettingsView: View {
         switch passphrasePurpose {
         case .creatingBackup: "Create Backup"
         case .restoringBackup: "Restore"
+        case .settingScheduledBackupPassphrase: "Save"
         case nil: "OK"
         }
     }
@@ -158,6 +200,13 @@ struct SettingsView: View {
                     + (summary.profileRestored ? ", and your wrist profile." : ".")
             } catch {
                 statusMessage = error.localizedDescription
+            }
+        case .settingScheduledBackupPassphrase:
+            if KeychainHelper.savePassphrase(passphrase) {
+                hasStoredBackupPassphrase = true
+                statusMessage = "Automatic backup passphrase saved."
+            } else {
+                statusMessage = "Couldn't save the passphrase — try again."
             }
         }
     }
@@ -252,6 +301,50 @@ struct SettingsView: View {
         } footer: {
             Text("CSV covers your watch list; the encrypted backup captures your entire collection, including straps, service history, wear log, and provenance documents.")
         }
+    }
+
+    // MARK: Scheduled Backup
+
+    private var scheduledBackupSection: some View {
+        Section {
+            Toggle("Automatic Backup", isOn: $isScheduledBackupEnabled)
+
+            LabeledContent("Backup Folder") {
+                Button(scheduledBackupFolderName) {
+                    isPickingBackupFolder = true
+                }
+            }
+
+            if isScheduledBackupEnabled {
+                Picker("Frequency", selection: $scheduledBackupFrequency) {
+                    ForEach(ScheduledBackupManager.BackupFrequency.allCases) { frequency in
+                        Text(frequency.label).tag(frequency)
+                    }
+                }
+            }
+
+            Button(hasStoredBackupPassphrase ? "Change Backup Passphrase" : "Set Backup Passphrase") {
+                passphrasePurpose = .settingScheduledBackupPassphrase
+            }
+
+            if hasStoredBackupPassphrase {
+                Button("Remove Stored Passphrase", role: .destructive) {
+                    KeychainHelper.deletePassphrase()
+                    hasStoredBackupPassphrase = false
+                }
+            }
+        } header: {
+            Text("Scheduled Backup")
+        } footer: {
+            Text("Automatically saves an encrypted backup to the folder you choose, on the schedule above — no need to remember to do it manually. Needs a folder and a passphrase set first.")
+        }
+    }
+
+    private var scheduledBackupFolderName: String {
+        guard let bookmark = scheduledBackupFolderBookmark,
+              let url = ScheduledBackupManager.resolveBookmarkedFolderURL(from: bookmark)
+        else { return "Not Set" }
+        return url.lastPathComponent
     }
 
     // MARK: Purchase Status
