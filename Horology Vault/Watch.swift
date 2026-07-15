@@ -72,4 +72,13 @@ final class Watch {
         guard let serviceDueDate else { return false }
         return serviceDueDate < Date()
     }
+
+    /// Wear entries logged since the watch's last service (or since acquisition, if it's never been
+    /// serviced) — surfaces watches accumulating wear without a matching service interval. Shared so the
+    /// Insights dashboard's wear-vs-maintenance chart and any future consumer can't disagree, same reasoning
+    /// as `serviceDueDate`.
+    var wearCountSinceLastService: Int {
+        let since = lastServiceDate ?? acquisitionDate
+        return wearLogs.filter { $0.dateWorn > since }.count
+    }
 }

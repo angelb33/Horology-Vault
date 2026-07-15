@@ -11,6 +11,7 @@ import SwiftData
 struct ContentView: View {
     enum Section: String, CaseIterable, Identifiable {
         case vault = "Vault"
+        case insights = "Insights"
         case fitCalculator = "Fit Calculator"
         case wishlist = "Wishlist"
         case maintenance = "Maintenance"
@@ -22,6 +23,7 @@ struct ContentView: View {
         var systemImage: String {
             switch self {
             case .vault: "clock"
+            case .insights: "chart.bar.xaxis"
             case .fitCalculator: "ruler"
             case .wishlist: "star"
             case .maintenance: "wrench.and.screwdriver"
@@ -37,6 +39,9 @@ struct ContentView: View {
     @Query private var watches: [Watch]
     @Query private var entitlements: [Entitlements]
 
+    @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
+    @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+
     var body: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
@@ -51,6 +56,8 @@ struct ContentView: View {
             switch selection {
             case .vault, nil:
                 VaultGridView()
+            case .insights:
+                DashboardView()
             case .fitCalculator:
                 FitCalculatorView()
             case .wishlist:
@@ -64,6 +71,8 @@ struct ContentView: View {
             }
         }
         .environment(purchaseManager)
+        .tint(accentColorOption.color)
+        .preferredColorScheme(colorSchemePreference.colorScheme)
         .task {
             NotificationManager.requestAuthorizationIfNeeded()
             NotificationManager.rescheduleAll(for: watches)

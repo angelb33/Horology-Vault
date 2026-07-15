@@ -16,6 +16,9 @@ struct SettingsView: View {
     @Query private var profiles: [UserProfile]
     @Query private var entitlements: [Entitlements]
 
+    @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
+    @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+
     @State private var csvExportDocument: CSVDocument?
     @State private var isExportingCSV = false
     @State private var isImportingCSV = false
@@ -36,6 +39,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                appearanceSection
                 wristProfileSection
                 dataSection
                 purchaseStatusSection
@@ -155,6 +159,33 @@ struct SettingsView: View {
             } catch {
                 statusMessage = error.localizedDescription
             }
+        }
+    }
+
+    // MARK: Appearance
+
+    private var appearanceSection: some View {
+        Section {
+            Picker("Appearance", selection: $colorSchemePreference) {
+                ForEach(ColorSchemePreference.allCases) { preference in
+                    Text(preference.label).tag(preference)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Accent Color")
+                HStack(spacing: 10) {
+                    ForEach(AccentColorOption.allCases) { option in
+                        AccentColorSwatch(option: option, isSelected: option == accentColorOption) {
+                            accentColorOption = option
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Appearance")
         }
     }
 
@@ -305,6 +336,80 @@ private struct WristMeasurementField: View {
                 Text(unit)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+/// A tappable circular color swatch used by the Appearance section's accent color picker,
+/// matching the fixed-palette pattern Reminders/Notes use rather than an open-ended color picker.
+private struct AccentColorSwatch: View {
+    let option: AccentColorOption
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Circle()
+                .fill(option.color)
+                .frame(width: 28, height: 28)
+                .overlay {
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option.label)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// User-facing override for the system color scheme; `.system` means "don't override" and maps to a
+/// `nil` `ColorScheme` so `.preferredColorScheme` falls back to the OS setting.
+enum ColorSchemePreference: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// Predetermined accent color choices offered in Settings; a fixed 8-color palette rather than a
+/// free-form color picker keeps every option legible in both light and dark mode without per-color
+/// contrast testing (see Section 9 of the monetization plan).
+enum AccentColorOption: String, CaseIterable, Identifiable {
+    case blue, red, orange, yellow, green, teal, purple, pink
+
+    var id: String { rawValue }
+
+    var label: String { rawValue.capitalized }
+
+    var color: Color {
+        switch self {
+        case .blue: .blue
+        case .red: .red
+        case .orange: .orange
+        case .yellow: .yellow
+        case .green: .green
+        case .teal: .teal
+        case .purple: .purple
+        case .pink: .pink
         }
     }
 }

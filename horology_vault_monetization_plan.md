@@ -10,6 +10,16 @@
 > V2 rollout and two new entries in Section 9's open decisions. Read Section 5 for what's actually built
 > today, Section 6 for the ordered plan to close the V1 gap, and Section 10 for why the roadmap is
 > sequenced the way it is.
+>
+> **Revision note (2026-07-14):** Two new V1-scope, local-only features were added after the original 9
+> phases closed out: **Appearance (light/dark mode + accent color theming)** and a new **Insights** sidebar
+> screen (wear frequency, service status, and wear-vs-maintenance trend charts). Section 1's one-time-purchase
+> table gained two rows for these; Section 6 gained **Phase 10** and **Phase 11**, both implemented and
+> shipped the same day — build succeeds, full test suite passing at 37/37, and the UI itself (appearance
+> toggles, all four charts) was manually verified by the user directly in Xcode, since the sandbox this work
+> was implemented in has no Screen Recording/Apple Events permission to do that verification itself. Neither
+> feature needed a schema change beyond one new computed property on `Watch` (see Phase 11) — both build
+> entirely on data the app already collects.
 
 ## 1. Feature-to-Tier Table
 
@@ -27,6 +37,8 @@
 | Data import/export + encrypted local backup | Local file I/O | Table stakes |
 | Wishlist (static list, no live pricing) | Just a local table, no monitoring | Table stakes |
 | Authorized service center directory | Static dataset, refreshed via app updates rather than a live feed | Niche — only Bezelio (service-log-only) is adjacent, nobody bundles a directory |
+| Appearance: light/dark mode override + predetermined accent color theming | Pure local UI preference (`@AppStorage`), no external data | Table stakes — most collection-tracker apps already follow/override system appearance; accent color choice is a low-cost polish item, not a differentiator on its own |
+| Insights dashboard (wear frequency, service status, wear-vs-maintenance correlation, collection growth) | Local aggregation/charting of data the user already owns (`WearLog`, `ServiceRecord`, `Watch`) via Swift Charts | Mixed — WatchGrid already ships a stats dashboard (value, brand distribution, see §10), so *having* a dashboard is table stakes; the wear-vs-maintenance correlation chart specifically (flagging watches worn heavily since their last service) wasn't seen in any surveyed competitor and is this feature's actual differentiating angle |
 
 ### Optional Subscription (needs an always-on backend — cost scales with usage)
 
@@ -193,8 +205,10 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   records, wear logs, provenance docs, wishlist items, and the wrist profile. Restore is additive rather
   than replace-all.
 - **Authorized service center directory:** `OfficialServiceDirectory` (bundled, 169 manufacturers spanning
-  mass-market through independent haute horlogerie, website-only contact info) plus user-added
-  `CustomServiceCenter` entries, browsable/searchable in the new `ServiceCentersView` sidebar screen.
+  mass-market through independent haute horlogerie, website-only contact info, user-editable per entry via
+  `ServiceContactOverride` with a reset-to-default action) plus user-added, user-editable
+  `CustomServiceCenter` entries, browsable/searchable in independently collapsible sections of the
+  `ServiceCentersView` sidebar screen.
 - **Entitlements + StoreKit 2:** `Entitlements` `@Model` and `PurchaseManager` (StoreKit 2, one
   non-consumable lifetime-unlock product) gate new-watch creation behind `is_lifetime_unlocked`, with a
   seeded one-watch demo state and a persistent unlock banner rather than a hard paywall — see the Phase 8
@@ -202,9 +216,10 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–9 of Section 6 — the entire ordered V1 plan — are complete. Nothing remains against this plan's
-V1 scope; the only work left in this document is V2 (Section 4's subscription rollout, Section 10's
-reordering of it) once V1 has real user traction.
+Phases 1–11 of Section 6 — the entire ordered V1 plan, including the two features added 2026-07-14
+(**Phase 10**, Appearance, and **Phase 11**, the Insights dashboard) — are complete. Nothing remains against
+this plan's V1 scope; the only work left in this document is V2 (Section 4's subscription rollout, Section
+10's reordering of it) once V1 has real user traction.
 
 ## 6. Next Implementation Steps (Ordered Plan)
 
@@ -314,10 +329,22 @@ which made the rest of the Workbench feel like a read-only display.
     independent shop) via a new `CustomServiceCenter` `@Model` (name, brand, phone, website, address,
     notes), registered in the schema. This was an explicit ask, not scope creep — a collector's actual
     trusted service contact is often independent, not the manufacturer.
-- Added `ServiceCentersView.swift`: a searchable (`.searchable`) List with two sections — "Manufacturer
-  Support" (the bundled directory, read-only) and "My Service Centers" (`CustomServiceCenter` entries, with
-  a "+" toolbar button opening an `AddServiceCenterView` sheet and swipe-to-delete). Search filters both
-  sections by brand or name.
+- Added `ServiceCentersView.swift`: a searchable (`.searchable`) List with two independently collapsible
+  sections — "Manufacturer Support" and "My Service Centers" — using `DisclosureGroup` rather than a plain
+  `Section`, since the full manufacturer list (169 entries) is long enough that collapsing it matters. Both
+  sections auto-expand while a search query is active, so a match never ends up hidden behind a collapsed
+  group. Search filters both sections by brand or name. A "+" toolbar button opens `AddServiceCenterView`
+  in create mode; tapping (or right-clicking/long-pressing for the context menu) a custom entry reopens the
+  same sheet in edit mode via a `centerToEdit` param, mirroring `AddWatchView`'s edit pattern.
+  - **Follow-up enhancement (2026-07-14):** manufacturer entries were originally read-only. Added a new
+    `ServiceContactOverride` `@Model` (keyed by `brand`) so a user can edit a bundled contact's name/
+    website/notes at their own discretion — tapping a Manufacturer Support row opens `EditOfficialContactView`
+    pre-filled with the current effective values (override if one exists, else the bundled default), and a
+    "Reset to Default" action (shown only when an override exists) deletes the override row outright rather
+    than storing a synthetic "default" row. `ServiceCentersView` merges `OfficialServiceDirectory.contacts`
+    with any matching override into a private `EffectiveOfficialContact` before display, and
+    `OfficialServiceContact.id` was changed from a fresh `UUID()` to the `brand` string so row identity
+    (and the override lookup keyed on it) stays stable across re-renders.
 - Added "Service Centers" as a 6th sidebar entry in `ContentView.Section` (between Maintenance and
   Settings), matching the precedent Phase 4 set for Fit Calculator.
 
@@ -382,12 +409,76 @@ suggested, since the earlier phases shipped before this plan's own testing disci
   No production bugs were found in the process — only a mistake in one test's own chosen input values,
   caught and fixed by actually running the suite rather than assuming it would pass.
 
+### Phase 10 — Appearance: light/dark mode + accent color ✅ Done (2026-07-14)
+No schema change and no new `@Model` — this is pure device-local UI preference, same reasoning already
+used for why Settings' wrist profile lives in `UserProfile` but a display preference like this doesn't need
+to be a SwiftData row at all: `@AppStorage` is the right tool since nothing here needs to be queried,
+synced, or included in the encrypted backup.
+
+- Added `ColorSchemePreference: String, CaseIterable` (`system`, `light`, `dark`, each with a `label` and a
+  `colorScheme: ColorScheme?`) and `AccentColorOption: String, CaseIterable` (`blue` default, plus `red`,
+  `orange`, `yellow`, `green`, `teal`, `purple`, `pink`, each with a computed `color: Color`) directly in
+  `SettingsView.swift`.
+- The selections are stored as `@AppStorage("colorSchemePreference")` / `@AppStorage("accentColorOption")`
+  (SwiftUI's native `RawRepresentable`-where-`RawValue == String` support, so no manual raw-string
+  wrangling), read in both `SettingsView` (to drive the pickers) and `ContentView` (to apply them).
+  `ContentView.body` applies `.tint(accentColorOption.color)` and
+  `.preferredColorScheme(colorSchemePreference.colorScheme)` once on the root `NavigationSplitView`, so
+  every screen — including sheets presented from within it — inherits both without per-view changes.
+- Added an "Appearance" `Section` to `SettingsView`, positioned first (above Wrist Profile) — a segmented
+  `Picker` (labels hidden, since the section header already says "Appearance") for the color scheme, and a
+  row of tappable circular `AccentColorSwatch` views for the accent (checkmark overlay on the selection),
+  mirroring the Reminders/Notes accent-color-grid pattern.
+- No test coverage added — this phase has no business logic to extract (unlike Phase 9's rationale for
+  pulling fit-check math or entitlement reconciliation into testable functions), just enum→`Color`/
+  enum→`ColorScheme?` mappings and view wiring. Verified via a successful `xcodebuild build`, the full
+  `xcodebuild test` suite (33/33 passing, no regressions), and — since the sandbox this phase was
+  implemented in has no Screen Recording/Apple Events permission to drive or screenshot a GUI app — a manual
+  pass run by the user directly in Xcode (Cmd+R), confirming the scheme picker overrides light/dark and
+  each accent swatch re-tints the UI.
+
+### Phase 11 — Insights dashboard (wear frequency, service status, wear-vs-maintenance trends) ✅ Done (2026-07-14)
+Sequenced after Phase 10 so the new charts pick up the user's accent color via the app-wide `.tint(_:)` for
+free.
+
+- Added a 7th sidebar entry, **Insights**, to `ContentView.Section` — inserted between Vault and Fit
+  Calculator. Deliberately named **Insights**, not "Dashboard" (the file is still `DashboardView.swift`,
+  same "filename doesn't have to match the sidebar label" precedent as `VaultGridView`) — Section 1's table
+  already calls the Vault itself "the dashboard/collection grid," so reusing that word for a second screen
+  would be confusing.
+- Added `Watch.wearCountSinceLastService: Int` to `Watch.swift` — counts `wearLogs` where
+  `dateWorn > (lastServiceDate ?? acquisitionDate)`. The only data-model change either phase needed;
+  everything else derives from relationships that already existed. Covered by four new cases in
+  `WatchModelTests.swift` (zero wear logs, wear entirely before service, wear split across the service
+  boundary, and the no-service-records fallback to `acquisitionDate`) — 37 tests total now, all passing.
+- Added `DashboardView.swift`: a `ScrollView` of four titled `InsightCard`s (a private helper view,
+  `.thinMaterial` background matching `VaultGridView`'s existing card styling), each wrapping one
+  single-purpose chart view — matching the `AccuracyChartView.swift` precedent (one file, one `Chart`, one
+  `ContentUnavailableView` empty state) rather than one large file with several `Chart`s inline:
+  - `WearFrequencyChartView.swift` — horizontal `BarMark` (watch name on the category axis) of wear-log
+    count per watch, sorted descending. Empty state when no watch has any `WearLog` entries yet.
+  - `ServiceStatusChartView.swift` — horizontal `BarMark` of days until/past each watch's `serviceDueDate`,
+    colored red when overdue, green otherwise (an intentional exception to inheriting the accent tint —
+    status color here is meaningful, not decorative).
+  - `WearServiceCorrelationChartView.swift` — a `PointMark` scatter of `wearCountSinceLastService` against
+    days elapsed since the last service, one point per watch (annotated with brand/model), surfacing
+    watches getting heavy wear without a recent service. This is the chart Section 1's table row calls out
+    as the actual differentiator, not just a stats readout.
+  - `CollectionGrowthChartView.swift` — `LineMark` (step interpolation) of cumulative watch count by
+    `acquisitionDate`.
+- The four chart views themselves aren't unit-tested (SwiftUI `Chart` rendering isn't meaningfully testable
+  outside snapshot testing, which this project doesn't use anywhere else); verified via a successful
+  `xcodebuild build` and — same sandbox screen-access limitation noted in Phase 10 — a manual pass run by
+  the user directly in Xcode, confirming the Insights tab and all four charts render correctly against
+  their real collection.
+
 ## 7. SwiftUI View Hierarchy (V1)
 
 Root: a single `NavigationSplitView` — renders as a sidebar + content + detail 3-column layout on macOS/iPad, and collapses to a stack on iPhone. This is the standard SwiftUI pattern for one codebase that adapts to both platforms.
 
 **Sidebar (top-level sections):**
 - Vault (default/home)
+- Insights
 - Fit Calculator
 - Wishlist
 - Maintenance
@@ -406,6 +497,13 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
   - *Fit Preview* — this watch's `lug_to_lug_mm` plotted against the user's saved wrist geometry.
 - `+` button → `AddWatchView` (form: brand, model, complications multi-select, case_diameter_mm, lug_to_lug_mm, lug_width_mm, photo).
 
+**Insights**
+- `DashboardView` — scrollable set of chart cards: wear frequency per watch, service status (days until/
+  past due), wear-vs-maintenance correlation (wear count since last service vs. days since last service —
+  flags watches getting heavy use without upkeep), and cumulative collection growth over time. All Swift
+  Charts, all derived from data the app already collects — no new backend, no new schema beyond one computed
+  property on `Watch`.
+
 **Fit Calculator** (reachable standalone, or from a Workbench)
 - `FitCalculatorView` — pick a watch, renders a 2D top-down diagram (SwiftUI `Canvas`) comparing `lug_to_lug_mm` against `wrist_top_width_cm`.
 
@@ -416,10 +514,13 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 - Cross-collection list of upcoming/overdue service items, sorted by due date — this is what drives the local notification reminders, so the screen and the notification scheduling share one query.
 
 **Service Centers**
-- Searchable list of official manufacturer service/support contacts (bundled, read-only) plus user-added
-  custom entries (name, brand, phone, website, address, notes), with add/delete for the custom ones.
+- Searchable list, in two independently collapsible sections: official manufacturer service/support
+  contacts (bundled, editable per entry with a reset-to-default) and user-added custom entries (name,
+  brand, phone, website, address, notes), with add/edit/delete for the custom ones.
 
 **Settings**
+- Appearance: color scheme override (System/Light/Dark) and a predetermined accent color picker (blue
+  default, plus red/orange/yellow/green/teal/purple/pink).
 - Wrist profile (`wrist_top_width_cm`, `wrist_side_depth_cm`).
 - Data: CSV import/export, encrypted local backup/restore.
 - Purchase status: shows unlock state, includes a **Restore Purchase** button (still recommended even with StoreKit 2's automatic entitlement sync — Apple's review guidelines expect one).
@@ -459,6 +560,13 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
   behavior — imported records are inserted alongside the existing collection) or gain a true
   replace-all-with-backup mode; additive was chosen to avoid a silent full-collection wipe, but a power
   user restoring onto a fresh install may expect exact replacement instead.
+- **(Added 2026-07-14, from Phase 10)** Whether the 8 predetermined accent colors are the final set, or
+  whether a custom color picker should be offered later — 8 was chosen to match the common
+  "small fixed palette" pattern (Reminders, Notes) rather than open-ended choice, which also keeps every
+  color legible against both light and dark backgrounds without per-color contrast testing.
+- **(Added 2026-07-14, from Phase 11)** Whether Insights charts need a time-range filter (e.g. "last year"
+  vs. "all time") once collections and wear-log history grow large enough that "all time" gets visually
+  noisy — not needed for an initial collection size, worth revisiting once real usage data exists.
 
 ## 10. Competitive Positioning (Market Research, 2026-07-13)
 

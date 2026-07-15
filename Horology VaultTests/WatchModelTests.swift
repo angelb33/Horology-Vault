@@ -105,6 +105,54 @@ struct WatchModelTests {
         #expect(watch.isServiceDue == true)
     }
 
+    // MARK: - wearCountSinceLastService (Insights dashboard's wear-vs-maintenance chart)
+
+    @Test("With no wear logs, wearCountSinceLastService is 0")
+    func wearCountSinceLastServiceIsZeroWithNoWearLogs() {
+        let watch = makeWatch()
+        #expect(watch.wearCountSinceLastService == 0)
+    }
+
+    @Test("Wear logged entirely before the last service does not count")
+    func wearCountSinceLastServiceExcludesWearBeforeService() {
+        let watch = makeWatch(acquisitionDate: Date(timeIntervalSince1970: 0))
+        let service = Date(timeIntervalSince1970: 10_000)
+        watch.serviceRecords = [
+            ServiceRecord(datePerformed: service, serviceType: "Full Service", accuracyDeltaSPD: 0)
+        ]
+        watch.wearLogs = [
+            WearLog(dateWorn: Date(timeIntervalSince1970: 1_000)),
+            WearLog(dateWorn: Date(timeIntervalSince1970: 5_000)),
+        ]
+        #expect(watch.wearCountSinceLastService == 0)
+    }
+
+    @Test("Wear logged after the last service counts, and wear split across the boundary only counts the later entries")
+    func wearCountSinceLastServiceCountsOnlyWearAfterService() {
+        let watch = makeWatch(acquisitionDate: Date(timeIntervalSince1970: 0))
+        let service = Date(timeIntervalSince1970: 10_000)
+        watch.serviceRecords = [
+            ServiceRecord(datePerformed: service, serviceType: "Full Service", accuracyDeltaSPD: 0)
+        ]
+        watch.wearLogs = [
+            WearLog(dateWorn: Date(timeIntervalSince1970: 5_000)),   // before service
+            WearLog(dateWorn: Date(timeIntervalSince1970: 11_000)),  // after service
+            WearLog(dateWorn: Date(timeIntervalSince1970: 12_000)),  // after service
+        ]
+        #expect(watch.wearCountSinceLastService == 2)
+    }
+
+    @Test("With no service records, wearCountSinceLastService falls back to counting wear since acquisitionDate")
+    func wearCountSinceLastServiceFallsBackToAcquisitionDate() {
+        let acquisition = Date(timeIntervalSince1970: 10_000)
+        let watch = makeWatch(acquisitionDate: acquisition)
+        watch.wearLogs = [
+            WearLog(dateWorn: Date(timeIntervalSince1970: 5_000)),   // before acquisition
+            WearLog(dateWorn: Date(timeIntervalSince1970: 11_000)),  // after acquisition
+        ]
+        #expect(watch.wearCountSinceLastService == 1)
+    }
+
     // MARK: - Cascade delete: ServiceRecord, WearLog, ProvenanceDoc
 
     @Test("Deleting a Watch cascade-deletes its ServiceRecords")

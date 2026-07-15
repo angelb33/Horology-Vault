@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project state
 
 The Xcode default template has been replaced with the real app, and V1's local-only feature set (Section 1
-of the monetization plan) is now fully built out — Phases 1–9 of Section 6's ordered plan are all done. The
+of the monetization plan) is now fully built out — Phases 1–11 of Section 6's ordered plan are all done. The
 SwiftData model layer (`Watch.swift`, `Strap.swift`,
 `ServiceRecord.swift`, `UserProfile.swift`, `WishlistItem.swift`, `WearLog.swift`, `ProvenanceDoc.swift`) and
 the Vault UI (`VaultGridView.swift`, `WatchCardView.swift`, `WatchDetailView.swift`, `AccuracyChartView.swift`,
@@ -30,8 +30,17 @@ purchase, fully local/offline) vs. V2 (subscription, needs backend services) fea
 SwiftUI view hierarchy, and the StoreKit 2 purchase flow. Section 5 of that doc tracks exactly what's built
 vs. outstanding as of the last review, and Section 6 is the ordered implementation plan — Phases 1–9 (core
 CRUD gaps, Wear Log, Provenance, Fit Calculator, Maintenance reminders, Data import/export & backup, Service
-center directory, Entitlements/StoreKit 2, tests) are all done; nothing remains against this plan's V1
-scope. Treat that doc as the
+center directory, Entitlements/StoreKit 2, tests) are all done. Two more V1-scope phases were added and
+shipped 2026-07-14: **Phase 10** (Appearance — `ColorSchemePreference`/`AccentColorOption` enums in
+`SettingsView.swift`, `@AppStorage`-backed, applied via `.tint()`/`.preferredColorScheme()` on
+`ContentView`'s root, no schema change) and **Phase 11** (a new "Insights" sidebar entry →
+`DashboardView.swift`, wrapping `WearFrequencyChartView`, `ServiceStatusChartView`,
+`WearServiceCorrelationChartView`, and `CollectionGrowthChartView` — all Swift Charts, needing only one new
+computed property, `Watch.wearCountSinceLastService`, covered by 4 new tests in `WatchModelTests.swift`).
+Both build cleanly, the full test suite passes (37/37), and the UI itself was manually confirmed working by
+the user directly in Xcode (the sandbox this work was implemented in has no Screen Recording/Apple Events
+permission, so that verification step couldn't happen from inside the session). Nothing remains against
+this plan's V1 scope. Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -114,10 +123,15 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   (standalone watch picker embedding `FitDiagramView`, a `Canvas`-based top-down lug-to-lug-vs-wrist diagram
   with a fits/overhangs verdict), `WishlistView` (list of `WishlistItem`, price-alert toggle present but
   disabled pending V2), `MaintenanceView` (watches split into Service Due / Up to Date via
-  `Watch.isServiceDue`, rows push into `WatchDetailView`), `ServiceCentersView` (`.searchable` List with a
-  "Manufacturer Support" section reading the bundled, read-only `OfficialServiceDirectory.contacts` and a
-  "My Service Centers" section over `@Query`-fetched `CustomServiceCenter`s, "+" toolbar button → private
-  `AddServiceCenterView` sheet, swipe-to-delete on custom entries only), `SettingsView` (wrist profile
+  `Watch.isServiceDue`, rows push into `WatchDetailView`), `ServiceCentersView` (`.searchable` List with two
+  independently collapsible `DisclosureGroup` sections — "Manufacturer Support" over
+  `OfficialServiceDirectory.contacts` merged with any matching `ServiceContactOverride` (tap a row or use
+  its context menu to edit; edited rows get an "Edited" badge and a "Reset to Default" action that just
+  deletes the override, since the bundled contact is always the fallback), and "My Service Centers" over
+  `@Query`-fetched `CustomServiceCenter`s (tap/context-menu to edit via `AddServiceCenterView`'s
+  `centerToEdit` param, swipe-to-delete). Both sections auto-expand while `searchText` is non-empty so a
+  query never hides its own results behind a collapsed section. "+" toolbar button → `AddServiceCenterView`
+  in create mode), `SettingsView` (wrist profile
   editing, a working Data section — CSV export/import + encrypted backup/restore, see `DataBackupManager`
   below — and a working Purchase section wired to `PurchaseManager`/`Entitlements`, see below).
   `NotificationManager.swift` (a static-only enum, not a view) schedules/cancels the local "service due"
@@ -129,8 +143,8 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,
-  ProvenanceDoc.self, CustomServiceCenter.self, Entitlements.self]`. `Watch` cascade-deletes its
-  `ServiceRecord`s, `WearLog`s, and `ProvenanceDoc`s, and
+  ProvenanceDoc.self, CustomServiceCenter.self, Entitlements.self, ServiceContactOverride.self]`. `Watch`
+  cascade-deletes its `ServiceRecord`s, `WearLog`s, and `ProvenanceDoc`s, and
   nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches more than 3 years past
   their last (or acquisition) date, now derived from a shared `Watch.serviceDueDate` computed property so
   `MaintenanceView` and `NotificationManager`'s reminder scheduling can never disagree on the due date.
@@ -149,8 +163,13 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   Restore is additive (inserts alongside the existing collection) rather than replace-all — see the
   monetization plan's Section 9 for that as an open decision. `OfficialServiceDirectory.swift` is a
   non-SwiftData Swift literal (`OfficialServiceDirectory.contacts: [OfficialServiceContact]`), not a
-  `@Model` — it's bundled read-only reference data, so it doesn't belong in the schema; `CustomServiceCenter`
-  is the `@Model` counterpart for user-added service centers. `Watch` also has an optional `referenceNumber`. `Strap` has optional
+  `@Model` — it's bundled read-only reference data, so it doesn't belong in the schema, and
+  `OfficialServiceContact.id` is the `brand` string (not a fresh `UUID()`) so identity stays stable across
+  re-renders. `ServiceContactOverride` is the `@Model` that lets a user edit one of those bundled entries —
+  keyed by `brand`, one row per edited contact, deleted entirely on "Reset to Default" rather than storing
+  an empty/default row; `ServiceCentersView` merges base + override into a private `EffectiveOfficialContact`
+  before displaying. `CustomServiceCenter` is the separate `@Model` for user-added (not manufacturer-sourced)
+  service centers. `Watch` also has an optional `referenceNumber`. `Strap` has optional
   `name`, `lengthMM`, and `notes` fields plus a `summary` computed property (`"name · material · width mm"`,
   name omitted if unset) used consistently in pickers/labels — use `strap.summary` rather than re-deriving
   that string. `ProvenanceDoc.fileData` is `@Attribute(.externalStorage)`, same pattern as
