@@ -44,6 +44,11 @@ struct RestoreSummary {
 enum DataBackupManager {
 
     // MARK: CSV (Watches only — a flat format can't represent nested straps/service/wear/provenance)
+    //
+    // Deliberately excludes `Watch.purchasePrice`, unlike the encrypted backup below. CSV is meant
+    // for portability (spreadsheets, sharing, printing) and travels as plaintext wherever it's
+    // saved — a meaningfully different exposure than data that only ever leaves the device
+    // encrypted. Not an oversight; don't add a price column here.
 
     static func exportWatchesCSV(context: ModelContext) throws -> String {
         let watches = try context.fetch(FetchDescriptor<Watch>(sortBy: [SortDescriptor(\.brand)]))
@@ -182,6 +187,7 @@ enum DataBackupManager {
                 lugWidthMM: watch.lugWidthMM,
                 acquisitionDate: watch.acquisitionDate,
                 photoData: watch.photoData,
+                purchasePrice: watch.purchasePrice,
                 serviceRecords: watch.serviceRecords.map {
                     ServiceRecordBackup(datePerformed: $0.datePerformed, serviceType: $0.serviceType, accuracyDeltaSPD: $0.accuracyDeltaSPD)
                 },
@@ -245,7 +251,8 @@ enum DataBackupManager {
                 lugToLugMM: watchBackup.lugToLugMM,
                 lugWidthMM: watchBackup.lugWidthMM,
                 acquisitionDate: watchBackup.acquisitionDate,
-                photoData: watchBackup.photoData
+                photoData: watchBackup.photoData,
+                purchasePrice: watchBackup.purchasePrice
             )
             context.insert(watch)
             for record in watchBackup.serviceRecords {
@@ -335,6 +342,7 @@ private struct WatchBackup: Codable {
     var lugWidthMM: Double
     var acquisitionDate: Date
     var photoData: Data?
+    var purchasePrice: Double?
     var serviceRecords: [ServiceRecordBackup]
     var wearLogs: [WearLogBackup]
     var provenanceDocs: [ProvenanceDocBackup]

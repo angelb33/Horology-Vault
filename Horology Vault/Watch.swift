@@ -18,6 +18,7 @@ final class Watch {
     var lugToLugMM: Double
     var lugWidthMM: Double
     var acquisitionDate: Date
+    var purchasePrice: Double?
 
     @Attribute(.externalStorage)
     var photoData: Data?
@@ -43,7 +44,8 @@ final class Watch {
         lugToLugMM: Double,
         lugWidthMM: Double,
         acquisitionDate: Date = Date(),
-        photoData: Data? = nil
+        photoData: Data? = nil,
+        purchasePrice: Double? = nil
     ) {
         self.brand = brand
         self.model = model
@@ -54,6 +56,7 @@ final class Watch {
         self.lugWidthMM = lugWidthMM
         self.acquisitionDate = acquisitionDate
         self.photoData = photoData
+        self.purchasePrice = purchasePrice
     }
 
     var lastServiceDate: Date? {
@@ -80,6 +83,16 @@ final class Watch {
     var wearCountSinceLastService: Int {
         let since = lastServiceDate ?? acquisitionDate
         return wearLogs.filter { $0.dateWorn > since }.count
+    }
+
+    /// `nil` unless both a purchase price is set and the watch has actually been worn at least
+    /// once — avoids a divide-by-zero and avoids implying "$0/wear" for a watch that's never left
+    /// the box. Deliberately not shown on `WatchDetailView`: this derived insight stays exclusive
+    /// to the paywalled Insights dashboard (`CostPerWearChartView`), which is the point of adding
+    /// it — the raw `purchasePrice` itself is free to view there instead.
+    var costPerWear: Double? {
+        guard let purchasePrice, !wearLogs.isEmpty else { return nil }
+        return purchasePrice / Double(wearLogs.count)
     }
 
     /// The canonical complication vocabulary — shared by `AddWatchView`'s toggle list and

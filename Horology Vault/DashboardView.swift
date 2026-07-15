@@ -49,6 +49,9 @@ struct DashboardView: View {
                             InsightCard(title: "Collection Growth") {
                                 CollectionGrowthChartView(watches: watches)
                             }
+                            InsightCard(title: "Cost per Wear") {
+                                CostPerWearChartView(watches: watches)
+                            }
                         }
                         .padding()
                     }

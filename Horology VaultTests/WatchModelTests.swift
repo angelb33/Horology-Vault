@@ -153,6 +153,35 @@ struct WatchModelTests {
         #expect(watch.wearCountSinceLastService == 1)
     }
 
+    // MARK: - costPerWear (Insights dashboard's paywalled cost-per-wear chart)
+
+    @Test("With no purchase price set, costPerWear is nil")
+    func costPerWearIsNilWithNoPurchasePrice() {
+        let watch = makeWatch()
+        watch.wearLogs = [WearLog(dateWorn: .now)]
+        #expect(watch.costPerWear == nil)
+    }
+
+    @Test("With a purchase price but no wear logs, costPerWear is nil (avoids divide-by-zero)")
+    func costPerWearIsNilWithNoWearLogs() {
+        let watch = makeWatch()
+        watch.purchasePrice = 5_000
+        #expect(watch.costPerWear == nil)
+    }
+
+    @Test("With a purchase price and wear logs, costPerWear divides price by wear count")
+    func costPerWearDividesPriceByWearCount() {
+        let watch = makeWatch()
+        watch.purchasePrice = 1_000
+        watch.wearLogs = [
+            WearLog(dateWorn: Date(timeIntervalSince1970: 1_000)),
+            WearLog(dateWorn: Date(timeIntervalSince1970: 2_000)),
+            WearLog(dateWorn: Date(timeIntervalSince1970: 3_000)),
+            WearLog(dateWorn: Date(timeIntervalSince1970: 4_000)),
+        ]
+        #expect(watch.costPerWear == 250)
+    }
+
     // MARK: - Cascade delete: ServiceRecord, WearLog, ProvenanceDoc
 
     @Test("Deleting a Watch cascade-deletes its ServiceRecords")

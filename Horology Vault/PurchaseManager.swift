@@ -57,9 +57,17 @@ final class PurchaseManager {
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
-                if case .verified(let transaction) = verification {
+                switch verification {
+                case .verified(let transaction):
                     await transaction.finish()
                     await reconcileEntitlements()
+                case .unverified(_, let verificationError):
+                    // A completed purchase that failed StoreKit's cryptographic verification —
+                    // previously silently swallowed here (no error, no entitlement write), which
+                    // looked identical to a successful-looking purchase sheet doing nothing
+                    // afterward. Surfacing it so a real verification failure is visible instead
+                    // of indistinguishable from every other silent-no-op path below.
+                    lastError = "Purchase completed but couldn't be verified: \(verificationError.localizedDescription)"
                 }
             case .userCancelled, .pending:
                 // Neither is an error — the user backed out, or needs Ask to Buy/parental

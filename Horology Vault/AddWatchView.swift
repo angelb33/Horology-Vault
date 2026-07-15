@@ -24,6 +24,7 @@ struct AddWatchView: View {
     @State private var caseDiameterMM: Double?
     @State private var lugToLugMM: Double?
     @State private var lugWidthMM: Double?
+    @State private var purchasePrice: Double?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
@@ -44,6 +45,7 @@ struct AddWatchView: View {
         _lugToLugMM = State(initialValue: watchToEdit?.lugToLugMM)
         _lugWidthMM = State(initialValue: watchToEdit?.lugWidthMM)
         _photoData = State(initialValue: watchToEdit?.photoData)
+        _purchasePrice = State(initialValue: watchToEdit?.purchasePrice)
     }
 
     private var canSave: Bool {
@@ -106,6 +108,14 @@ struct AddWatchView: View {
             TextField("Brand", text: $brand)
             TextField("Model", text: $model)
             TextField("Reference Number", text: $referenceNumber)
+            LabeledContent("Purchase Price") {
+                TextField("Optional", value: $purchasePrice, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+                    .frame(maxWidth: 120)
+            }
         }
     }
 
@@ -184,6 +194,7 @@ struct AddWatchView: View {
             watchToEdit.lugToLugMM = lugToLugMM ?? 0
             watchToEdit.lugWidthMM = lugWidthMM ?? 0
             watchToEdit.photoData = photoData
+            watchToEdit.purchasePrice = purchasePrice
             targetWatch = watchToEdit
         } else {
             let watch = Watch(
@@ -194,7 +205,8 @@ struct AddWatchView: View {
                 caseDiameterMM: caseDiameterMM ?? 0,
                 lugToLugMM: lugToLugMM ?? 0,
                 lugWidthMM: lugWidthMM ?? 0,
-                photoData: photoData
+                photoData: photoData,
+                purchasePrice: purchasePrice
             )
             modelContext.insert(watch)
             targetWatch = watch

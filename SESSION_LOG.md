@@ -1,5 +1,75 @@
 # Session Log
 
+## 2026-07-15 — Session 7
+
+### Accomplished this session
+
+- **Cost-per-wear tracking, a follow-up enhancement to Phase 11 (Insights):** `Watch.swift` gained an
+  optional `purchasePrice: Double?` and a computed `costPerWear: Double?` (`nil` unless both
+  `purchasePrice` is set and `wearLogs` is non-empty, avoiding a divide-by-zero and avoiding implying
+  "$0/wear" for an unworn watch). `AddWatchView.swift` gained a currency-formatted entry field.
+  `WatchDetailView.swift` shows the raw `purchasePrice` for free (it's just user-entered data) but
+  deliberately does NOT show `costPerWear` — that derived insight stays exclusive to the paywalled
+  Insights screen by design, a specific product decision confirmed with the user: the point is making
+  Insights worth its premium price, so the derived insight shouldn't leak out for free elsewhere. New
+  `CostPerWearChartView.swift` (modeled on `WearFrequencyChartView.swift`) is a 5th card in
+  `DashboardView.swift`'s Insights screen, automatically covered by Insights' existing paywall (no new
+  gating code needed). `DataBackupManager.swift` round-trips `purchasePrice` through the encrypted backup
+  but deliberately excludes it from CSV export/import (CSV travels as plaintext wherever it's saved,
+  unlike the encrypted-only backup — a comment documents this is intentional, not an oversight). Added 3
+  new test cases to `WatchModelTests.swift` covering nil-with-no-price, nil-with-no-wears, and the actual
+  division. Build succeeds on both platforms, full test suite passes (40/40).
+- **Real bug fix in `PurchaseManager.swift`:** `purchase()` previously silently swallowed a
+  `.success(.unverified(...))` StoreKit result (a completed purchase that fails cryptographic
+  verification) with zero user feedback — no error, no entitlement write, indistinguishable from every
+  other silent-no-op path in the function. Added explicit handling that sets `lastError` with a
+  descriptive message. Found while debugging the macOS purchase failure below; it didn't turn out to be
+  that bug's root cause, but it closes a real pre-existing silent-failure gap and should stay.
+- `CLAUDE.md` and `horology_vault_monetization_plan.md` were updated in-place alongside the feature work
+  (established project pattern); also caught and fixed a repeat of last session's date-typo bug — several
+  new entries in both docs said "2026-07-16" when the actual date of this work is 2026-07-15 (same class
+  of mistake as the "2026-07-16 → 2026-07-15" fix logged in Session 6).
+- **Diagnosed (not yet resolved) a macOS-only purchase failure**, the reason this session is closing early
+  for a Mac restart. Symptom: "Unlock Full Version" shows a normal-looking purchase sheet on the macOS
+  build (from Xcode), but nothing unlocks afterward. After adding the `PurchaseManager` fix above, the
+  real thrown error was captured: `ASDErrorDomain Code=825 "No transactions in response"`, thrown before
+  the `.success`/`.userCancelled`/`.pending` switch is even reached. Ruled out as an app-code bug via
+  direct verification on this machine: product IDs match exactly between `PurchaseManager` and
+  `Configuration.storekit`; no duplicate `Entitlements` rows in the on-disk SwiftData store (checked via
+  `sqlite3` against the real container path); all `Configuration.storekit` error-simulation flags
+  (`_failTransactionsEnabled`, `_storeKitErrors`, `_askToBuyEnabled`) are off; Debug → StoreKit → Manage
+  Transactions shows nothing stuck pending; `reconcileEntitlements()`'s `lastValidatedAt` timestamp is
+  fresh, proving it runs and correctly finds "not entitled." Cleared
+  `~/Library/Caches/com.apple.storekitagent/Octane/com.angelburgos.HorologyVault/` and fully quit/relaunched
+  Xcode — same error persisted. Working theory: macOS StoreKit Testing runs through `storekitagent`, a
+  persistent per-user system daemon (unlike iOS Simulator's per-device isolation); this session's heavy
+  local-price churn (three price edits, Ask-to-Buy toggled, manual transaction deletion via Manage
+  Transactions) may have left the *running* daemon in a bad state a file-cache clear can't reach — only a
+  full daemon restart (i.e. a Mac restart) might clear it. Full writeup with all verification steps is now
+  in `CLAUDE.md`'s new "Known issue" bullet.
+- No feature this session was visually verified in Xcode's Canvas/Simulator by the AI itself — same
+  sandbox limitation as every prior session (no Screen Recording/Apple Events/GUI-automation permission;
+  confirmed again this session via failed `screencapture`/`osascript`/XCUITest attempts). All verification
+  was via `xcodebuild build`/`xcodebuild test`; real UI/purchase-flow verification is deferred to the user.
+
+### Pending / next steps
+
+- **First priority next session: retry the macOS purchase after the Mac restart.** If `ASDErrorDomain 825`
+  persists even after a full restart, the recommended fallback (not yet decided with the user) is to
+  treat iOS Simulator as the primary target for testing purchase flows going forward, since macOS-native
+  StoreKit Testing has proven unreliable this session despite the app's own code being verified correct.
+- Cost-per-wear chart and the `PurchaseManager` unverified-result fix are committed as of this session
+  close (see commit below) but have not been manually eyeballed in Xcode — same outstanding gap as recent
+  phases.
+- The two manual non-code steps blocking V1 shipping are unchanged: enabling `Configuration.storekit` in
+  the Xcode scheme (already done per CLAUDE.md — verify still true) and registering the real product in
+  App Store Connect.
+- `horology_vault_monetization_plan.md` Section 5.1's "Built so far" list still predates recent phases in
+  its bullet-by-bullet detail (noted again this session, carried over from Session 6) — a full rewrite is
+  worth doing next time significant V1 work resumes.
+- V2 (subscription tier) remains out of scope, gated on V1 getting real user traction — do not start
+  unprompted.
+
 ## 2026-07-15 — Session 6
 
 ### Accomplished this session

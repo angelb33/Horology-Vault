@@ -41,6 +41,13 @@
 > reversing the day-one ungated decision — the manual "Encrypted Backup"/CSV buttons stay free either way,
 > so this doesn't reopen Section 9's "never gate data export" rule, it just gates the automation layer on
 > top. See Section 8's gating decision writeup and Phase 12's follow-up entry for the details.
+>
+> **Revision note (2026-07-15):** Added a **cost-per-wear chart** to Insights (Phase 11 follow-up) —
+> `Watch` gained an optional `purchasePrice` and a computed `costPerWear`, and a new
+> `CostPerWearChartView.swift` joins the dashboard as a 5th card, already covered by Insights' existing
+> paywall. Raw purchase price is shown for free on `WatchDetailView`; the derived cost-per-wear stays
+> Insights-exclusive by design. Included in the encrypted backup, deliberately excluded from CSV. Build
+> succeeds on both platforms, full test suite passing (40/40).
 
 ## 1. Feature-to-Tier Table
 
@@ -59,7 +66,7 @@
 | Wishlist (static list, no live pricing) | Just a local table, no monitoring | Table stakes |
 | Authorized service center directory | Static dataset, refreshed via app updates rather than a live feed | Niche — only Bezelio (service-log-only) is adjacent, nobody bundles a directory |
 | Appearance: light/dark mode override + predetermined accent color theming | Pure local UI preference (`@AppStorage`), no external data | Table stakes — most collection-tracker apps already follow/override system appearance; accent color choice is a low-cost polish item, not a differentiator on its own |
-| Insights dashboard (wear frequency, service status, wear-vs-maintenance correlation, collection growth) | Local aggregation/charting of data the user already owns (`WearLog`, `ServiceRecord`, `Watch`) via Swift Charts | Mixed — WatchGrid already ships a stats dashboard (value, brand distribution, see §10), so *having* a dashboard is table stakes; the wear-vs-maintenance correlation chart specifically (flagging watches worn heavily since their last service) wasn't seen in any surveyed competitor and is this feature's actual differentiating angle |
+| Insights dashboard (wear frequency, service status, wear-vs-maintenance correlation, collection growth, cost per wear) | Local aggregation/charting of data the user already owns (`WearLog`, `ServiceRecord`, `Watch`) via Swift Charts | Mixed — WatchGrid already ships a stats dashboard (value, brand distribution, see §10), so *having* a dashboard is table stakes; the wear-vs-maintenance correlation chart and the cost-per-wear chart (added 2026-07-15, `Watch.purchasePrice`) weren't seen in any surveyed competitor and are this feature's actual differentiating angle |
 | Scheduled automatic encrypted backup (Keychain-stored passphrase, user-picked folder, Daily/Weekly/Monthly) | Local file I/O + local OS scheduling (`BGTaskScheduler`/`NSBackgroundActivityScheduler`), no server | Niche — no surveyed competitor offers hands-off scheduled local backup; existing manual encrypted backup is already table stakes, this just removes the "remembering to do it" step |
 
 ### Optional Subscription (needs an always-on backend — cost scales with usage)
@@ -535,6 +542,31 @@ free.
   `xcodebuild build` and — same sandbox screen-access limitation noted in Phase 10 — a manual pass run by
   the user directly in Xcode, confirming the Insights tab and all four charts render correctly against
   their real collection.
+- **Follow-up enhancement (2026-07-15): cost-per-wear, a 5th chart.** Added while brainstorming what else
+  could justify Insights' premium price — no surveyed competitor tracks this, and it's a metric collectors
+  care about (a watch's cost-per-wear drops as it gets used more, which is how collectors justify expensive
+  purchases to themselves). Needed a real schema addition, unlike the original four charts: `Watch` gained
+  `purchasePrice: Double?` (optional, no validation requirement, defaulted to `nil` in `init` so no
+  existing call site broke) and a computed `costPerWear: Double?` (`nil` unless both `purchasePrice` is set
+  *and* `wearLogs` is non-empty, avoiding a divide-by-zero and avoiding implying "$0/wear" for an unworn
+  watch) — covered by 3 new cases in `WatchModelTests.swift` (40 tests total now, all passing). Two product
+  decisions were confirmed directly with the user rather than assumed, both aimed at keeping this feature
+  worth its premium framing rather than diluting it: (1) the raw `purchasePrice` is shown for free on
+  `WatchDetailView`'s Overview section (it's just data the user entered), but the derived `costPerWear` is
+  deliberately **not** shown there — it stays exclusive to the paywalled `CostPerWearChartView.swift`
+  (modeled directly on `WearFrequencyChartView.swift`'s shape: `let watches: [Watch]`, a private sorted
+  tuple array, `ContentUnavailableView` empty state, horizontal `BarMark` at `.frame(height: 220)`), sorted
+  cheapest-first as a "best value" leaderboard, same positive framing as the wear-frequency chart; (2)
+  `purchasePrice` round-trips through the encrypted backup (`WatchBackup` struct + both
+  `exportEncryptedBackup`/`importEncryptedBackup`) but is **deliberately excluded from CSV export/import**
+  — CSV is meant for portability and travels as plaintext wherever it's saved (cloud drives, sharing),
+  a meaningfully different exposure than data that only ever leaves the device encrypted; a comment was
+  left at `DataBackupManager`'s CSV functions so a future session doesn't "fix" the apparent gap. No new
+  gating code was needed — the chart lives inside `DashboardView`, already fully gated, so it just became a
+  5th card; entering a purchase price itself stays free everywhere, consistent with never gating a user's
+  own data entry, only the derived insight. Verified via `xcodebuild build` (both platforms) and
+  `xcodebuild test` (full suite green); the actual chart rendering hasn't been manually eyeballed yet, same
+  outstanding verification gap as the rest of this phase and Phase 12.
 
 ### Phase 12 — Scheduled automatic encrypted backup ✅ Done (2026-07-15)
 The existing manual "Encrypted Backup" button (Phase 6) only runs when the user remembers to tap it — this
@@ -895,6 +927,13 @@ through for a user whose entitlement lapses (e.g. a refund) after they'd already
   need an hourly wake-up) — left as a flat hourly poll for now since `performBackupIfDue`'s own due-check is
   cheap and the actual enforcement of frequency happens there, not in the poll interval; revisit only if
   the poll frequency itself turns out to have a real battery/CPU cost worth trimming.
+- **(Added 2026-07-15, from the cost-per-wear enhancement)** Confirmed choices, recorded so future sessions
+  don't re-litigate them: raw `purchasePrice` shown for free on `WatchDetailView`, derived `costPerWear`
+  kept Insights-exclusive (the whole point of adding this was to make Insights worth paying for); purchase
+  price included in the encrypted backup but excluded from CSV export/import (CSV travels as plaintext
+  wherever it's saved, a different exposure than encrypted-only data); single-currency V1 scope via
+  `Locale.current`, no per-watch currency selection or historical exchange-rate conversion — revisit only
+  if a user with a genuinely multi-currency collection actually asks for it.
 
 ## 10. Competitive Positioning (Market Research, 2026-07-13)
 

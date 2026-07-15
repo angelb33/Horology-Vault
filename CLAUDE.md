@@ -51,7 +51,10 @@ and shipped 2026-07-15: **Phase 12** (Scheduled Automatic Encrypted Backup — `
 only the automation layer is gated). Build succeeds on both platforms and the full test
 suite passes (10 new cases); end-to-end manual verification (folder picked, passphrase set, a `.hvbackup`
 file actually appearing unattended) is still outstanding, same sandbox-interaction limitation as Phases
-10–11. Nothing else remains against
+10–11. Phase 11 (Insights) gained a follow-up enhancement 2026-07-15: a **cost-per-wear chart**
+(`CostPerWearChartView.swift`), backed by a new optional `Watch.purchasePrice` and computed `costPerWear`
+(see Architecture below) — already covered by Insights' existing paywall, no new gating code needed.
+Nothing else remains against
 this plan's V1 scope. A feature outside the monetization plan's original scope, **Learn Hub**, was added
 2026-07-15: a free/ungated educational section (`LearnHubContent.swift`, `LearnHubView.swift`) covering
 watch anatomy, movements, complications, materials, straps, care, buying, and a glossary — 50 static
@@ -201,8 +204,16 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   now gates `DashboardView` (the Insights sidebar entry) instead: `@Query`-read, and when locked the whole
   screen is replaced by a `ContentUnavailableView`-based paywall with an "Unlock Full Version" action, rather
   than disabling a button. Fit Calculator stays open in both states — it's the plan's differentiator feature,
-  so hiding it would prevent it from ever doing its job of converting a browser into a buyer. **Scheduled
-  Backup joined Insights as gated, 2026-07-15** (see below) — manual export/backup remains free regardless.
+  so hiding it would prevent it from ever doing its job of converting a browser into a buyer. **Cost-per-wear
+  joined Insights as a 5th card, 2026-07-15**: `Watch` gained an optional `purchasePrice: Double?` and a
+  computed `costPerWear: Double?` (`nil` unless both `purchasePrice` is set and `wearLogs` is non-empty),
+  and `CostPerWearChartView.swift` (modeled on `WearFrequencyChartView.swift`) renders it inside
+  `DashboardView`, inheriting the existing paywall automatically — no new gating code. The raw
+  `purchasePrice` is shown for free on `WatchDetailView`'s Overview section (it's just data the user
+  entered); `costPerWear` itself is deliberately not shown there, staying Insights-exclusive by design, so
+  the paywall keeps meaning something. `purchasePrice` round-trips through the encrypted backup but is
+  intentionally excluded from CSV export/import — see `DataBackupManager.swift`'s CSV section comment.
+  **Scheduled Backup joined Insights as gated, 2026-07-15** (see below) — manual export/backup remains free regardless.
   `KeychainHelper.swift` (a static-only enum, no view) wraps Keychain Services
   (`SecItemAdd`/`SecItemCopyMatching`/`SecItemUpdate`/`SecItemDelete`) to store/read/delete the scheduled
   backup's passphrase — the only Keychain code in this project. `ScheduledBackupManager.swift` (another
@@ -261,7 +272,11 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   UI reads it via `@Query` but never writes it directly — writes only happen from `PurchaseManager`'s
   StoreKit transaction listener and its `reconcileEntitlementsOnLaunch()`/`purchase()`/`restorePurchases()`
   methods, per Section 2.2. When adding new `@Model` types, register them in the `Schema([...])` array in
-  `Horology_Vault_App.swift`.
+  `Horology_Vault_App.swift`. `PurchaseManager.purchase()`'s `switch` on the `VerificationResult` now
+  explicitly handles `.unverified(_, let verificationError)` (2026-07-15) by setting `lastError` — it used
+  to silently do nothing for a completed-but-unverified transaction, indistinguishable from every other
+  silent-no-op path in that function. Real bug, found while debugging the macOS StoreKit purchase failure
+  below; keep this handling even though it wasn't the root cause that time.
 - **Test frameworks:** unit tests (`Horology VaultTests/`) use the new **Swift Testing** framework
   (`import Testing`, `@Test`, `#expect`), not XCTest. UI tests (`Horology VaultUITests/`) use XCTest/XCUITest.
   Match whichever framework the target file already uses. `FitCalculatorTests.swift`, `EntitlementsTests.swift`,
@@ -283,3 +298,19 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   screens prematurely. StoreKit 2 testing locally uses `Configuration.storekit` (Edit Scheme → Run →
   Options → StoreKit Configuration) rather than a live App Store Connect product, which still needs to be
   registered separately (same product ID, `com.angelburgos.HorologyVault.lifetime`) before shipping.
+- **Known issue (open as of 2026-07-15): macOS-native StoreKit Testing purchase failure.** Tapping "Unlock
+  Full Version" in the macOS build (run from Xcode, `Configuration.storekit`) shows a normal-looking
+  purchase sheet, but `product.purchase()` throws `ASDErrorDomain Code=825 "No transactions in response"`
+  before the `.success`/`.userCancelled`/`.pending` switch is even reached — no entitlement is written.
+  Confirmed NOT an app-code bug: product IDs match exactly, no duplicate `Entitlements` rows in the on-disk
+  store (checked directly via `sqlite3`), all `Configuration.storekit` error-simulation flags are off,
+  Debug → StoreKit → Manage Transactions shows nothing stuck, and `reconcileEntitlements()` correctly
+  finds "not entitled" against a freshly-run reconciliation. Clearing
+  `~/Library/Caches/com.apple.storekitagent/Octane/com.angelburgos.HorologyVault/` and fully restarting
+  Xcode did not resolve it. Working theory: macOS StoreKit Testing runs through `storekitagent`, a
+  persistent per-user system daemon (unlike iOS Simulator, which isolates StoreKit Testing per simulator
+  device) — this session's heavy local-price churn (three price edits, Ask-to-Buy toggled, manual
+  transaction deletion) may have left the *running* daemon process itself in a bad state that a cache
+  clear can't touch. Next step: retry after a full Mac restart (force-kills/restarts the daemon); if
+  `ASDErrorDomain 825` persists even then, treat iOS Simulator as the primary target for purchase-flow
+  testing going forward rather than macOS-native StoreKit Testing.

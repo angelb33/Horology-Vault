@@ -96,6 +96,9 @@ struct WatchDetailView: View {
             LabeledContent("Lug-to-Lug", value: "\(watch.lugToLugMM.formatted()) mm")
             LabeledContent("Lug Width", value: "\(watch.lugWidthMM.formatted()) mm")
             LabeledContent("Acquired", value: watch.acquisitionDate.formatted(date: .abbreviated, time: .omitted))
+            if let purchasePrice = watch.purchasePrice {
+                LabeledContent("Purchase Price", value: purchasePrice.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))
+            }
         }
     }
 
