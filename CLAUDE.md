@@ -19,10 +19,15 @@ up `SettingsView`'s CSV export/import and encrypted backup/restore buttons, and 
 (backed by `OfficialServiceDirectory.swift`'s bundled manufacturer contacts and the new
 `CustomServiceCenter` model for user-added ones) adds a searchable service-center directory as a 6th
 sidebar entry. `Entitlements.swift` + `PurchaseManager.swift` (StoreKit 2, one non-consumable lifetime
-unlock) now gate new-watch creation — a fresh install seeds one demo watch and opens read-only with a
-persistent "Unlock Full Version" banner rather than a hard paywall; see Architecture below, and note two
-manual (non-code) steps remain before shipping: enabling `Configuration.storekit` in the Xcode scheme for
-local testing, and registering the real product in App Store Connect. The intended product and technical
+unlock) gate the Insights dashboard (not new-watch creation — see Architecture below for the 2026-07-14
+gating revision); a fresh install seeds one demo watch and opens fully able to add more, with Insights
+showing an "Unlock Full Version" paywall instead of a disabled button. One manual (non-code) step remains
+before shipping: registering the product in App Store Connect. (Local purchase testing is otherwise fully
+set up: a shared scheme at `Horology Vault.xcodeproj/xcshareddata/xcschemes/Horology Vault.xcscheme` now
+points StoreKit Configuration at `Configuration.storekit`, so a fresh checkout gets working local purchase
+testing without any manual Edit Scheme step — this was a per-machine, uncommitted setting until 2026-07-14.
+Ask to Buy is off in that config, so `purchase()` completes immediately rather than going through the
+simulated-parental-approval `.pending` path.) The intended product and technical
 design live in `horology_vault_monetization_plan.md` at the repo root — read it before implementing
 features, since it defines the full planned data model (`Watches`, `Straps`, `ServiceHistory`, `WearLog`,
 `Wishlist`, `ProvenanceDocs`, `Entitlements`), the entitlement/paywall architecture, the V1 (one-time
@@ -137,9 +142,14 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   `NotificationManager.swift` (a static-only enum, not a view) schedules/cancels the local "service due"
   reminder per watch — see Persistence below for the due-date math it shares with `Watch.isServiceDue`.
   `PurchaseManager.swift` (an `@Observable` class, not a view either) is injected into the environment from
-  `ContentView` via `.environment(purchaseManager)`; `VaultGridView` reads `Entitlements.isLifetimeUnlocked`
-  via `@Query` to disable its "Add Watch" button and show a persistent unlock banner when a fresh install
-  is still in its read-only demo state (one seeded sample watch, no hard paywall).
+  `ContentView` via `.environment(purchaseManager)`. **Gating was revised 2026-07-14** (see the monetization
+  plan's Section 8 "Gating decision for V1" and Phase 8 follow-up writeup): `VaultGridView`'s "Add Watch" is
+  no longer gated at all — blocking the core "add your own collection" action turned out to hurt onboarding
+  more than it helped conversion — and the `unlockBanner` it used to show was removed. `Entitlements.isLifetimeUnlocked`
+  now gates `DashboardView` (the Insights sidebar entry) instead: `@Query`-read, and when locked the whole
+  screen is replaced by a `ContentUnavailableView`-based paywall with an "Unlock Full Version" action, rather
+  than disabling a button. Fit Calculator stays open in both states — it's the plan's differentiator feature,
+  so hiding it would prevent it from ever doing its job of converting a browser into a buyer.
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,

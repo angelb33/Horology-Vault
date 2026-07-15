@@ -362,18 +362,30 @@ land.
   `.userCancelled`/`.pending` are no-ops, not errors, matching the plan's spec.
 - Added `Configuration.storekit` (a local StoreKit Testing configuration with one non-consumable product,
   `com.angelburgos.HorologyVault.lifetime`) so the purchase flow is testable in Xcode/Simulator without a
-  live App Store Connect record. **Two manual, non-code steps remain before shipping:** (1) in Xcode, Edit
-  Scheme → Run → Options → StoreKit Configuration → select `Configuration.storekit`, so local runs use the
-  test product; (2) register the same product ID in App Store Connect for the real listing.
+  live App Store Connect record. Originally flagged two manual, non-code steps remaining before shipping:
+  (1) in Xcode, Edit Scheme → Run → Options → StoreKit Configuration → select `Configuration.storekit`; (2)
+  register the same product ID in App Store Connect for the real listing.
+  - **Resolved 2026-07-14 (step 1):** a shared scheme (`xcshareddata/xcschemes/Horology Vault.xcscheme`) is
+    now committed with `Configuration.storekit` wired in as its StoreKit Configuration, so this is no longer
+    a per-machine setup step — a fresh checkout gets working local purchase testing immediately. Verified by
+    running the full purchase flow on both macOS and an iOS Simulator: `Product.products(for:)` resolved the
+    test product, `purchase()` completed (after also turning off the config's simulated Ask to Buy, which
+    otherwise exercises the `.pending`/parental-approval path on every attempt), and `Entitlements.isLifetimeUnlocked`
+    flipped to `true`. Step 2 (App Store Connect registration) remains outstanding — that one can't be done
+    from inside the repo.
 - Implemented the demo-mode gating this plan specifies: `ContentView` seeds exactly one sample watch (a
   Rolex Explorer) plus an `Entitlements()` row on a truly empty first launch (gated on both `entitlements`
   and `watches` being empty, so an existing user's real collection is never touched), and `VaultGridView`
-  disables its "Add Watch" toolbar button and shows a persistent "Unlock Full Version" banner (calling
-  `purchaseManager.purchase()` directly) whenever `entitlements.first?.isLifetimeUnlocked` is false — no
-  hard paywall on launch. *Scope note:* only the Vault's "Add Watch" action is gated, not every "+" button
-  app-wide (Straps/Wishlist/Service Centers/etc. stay open) — the plan's own example ("Add Watch disabled")
-  points at this one choke point, and it's the natural one since a demo user only has the one seeded watch
-  to explore anyway.
+  originally disabled its "Add Watch" toolbar button and showed a persistent "Unlock Full Version" banner
+  whenever `entitlements.first?.isLifetimeUnlocked` is false — no hard paywall on launch. *Scope note:* only
+  the Vault's "Add Watch" action was gated, not every "+" button app-wide (Straps/Wishlist/Service
+  Centers/etc. stayed open).
+  - **Follow-up revision (2026-07-14):** this gating point moved. "Add Watch" is no longer gated at all —
+    `VaultGridView`'s `isUnlocked` check, `unlockBanner`, and the `.disabled(!isUnlocked)` on the toolbar
+    button were all removed, along with the now-unused `entitlements`/`PurchaseManager` reads in that file.
+    `DashboardView` (Insights, Phase 11) is the feature gated behind `is_lifetime_unlocked` now instead —
+    see Section 8's revised "Gating decision for V1" for the reasoning. `SettingsView`'s Purchase section
+    (below) is unaffected by this change.
 - Wired `SettingsView`'s Purchase section to the real `PurchaseManager`: shows "Full Version" vs.
   "Demo (Read-Only)" based on the `Entitlements` row, an "Unlock Full Version — \(price)" button when
   locked, and a working "Restore Purchase" button, plus an inline error line if `purchaseManager.lastError`
@@ -466,6 +478,14 @@ free.
     as the actual differentiator, not just a stats readout.
   - `CollectionGrowthChartView.swift` — `LineMark` (step interpolation) of cumulative watch count by
     `acquisitionDate`.
+- **Follow-up revision (2026-07-14, same day as Phase 8's):** `DashboardView` became the feature gated
+  behind `is_lifetime_unlocked` when "Add Watch" gating was removed from `VaultGridView` — see Section 8's
+  revised "Gating decision for V1." When locked, the entire screen (not just an individual action) shows a
+  `ContentUnavailableView`-based paywall via a new `lockedView` computed property (lock icon, description,
+  "Unlock Full Version — \(price)" button calling `purchaseManager.purchase()`), taking priority over the
+  existing empty-collection state. Required adding `@Query private var entitlements: [Entitlements]` and
+  `@Environment(PurchaseManager.self) private var purchaseManager` to `DashboardView`, plus a `StoreKit`
+  import for `Product.displayPrice`.
 - The four chart views themselves aren't unit-tested (SwiftUI `Chart` rendering isn't meaningfully testable
   outside snapshot testing, which this project doesn't use anywhere else); verified via a successful
   `xcodebuild build` and — same sandbox screen-access limitation noted in Phase 10 — a manual pass run by
@@ -539,7 +559,21 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 4. On every app launch, iterating `Transaction.currentEntitlements` to reconcile the local `Entitlements` table with what StoreKit actually has on record — this is what makes "Restore Purchase" mostly automatic, since StoreKit 2 syncs entitlements without the user needing to do anything.
 5. Handling `.userCancelled` and `.pending` (e.g., Ask to Buy / parental approval) states without treating them as errors.
 
-**Gating decision for V1:** rather than a hard paywall on first launch, let the app open in a read-only demo state (e.g., one sample watch pre-loaded, "Add Watch" disabled) with a persistent "Unlock Full Version" prompt. This lets a browser see the Vault and Fit Calculator before paying — usually converts better than a paywall with nothing to look at, and costs nothing extra to build since it's just the existing `is_lifetime_unlocked` check gating the `+` buttons instead of the whole app.
+**Gating decision for V1 (revised 2026-07-14):** rather than a hard paywall on first launch, let the app
+open with the Vault, Fit Calculator, and every other one-time-purchase feature fully usable — including
+adding watches — with no lifetime-unlock check at all on that path. The original design disabled "Add
+Watch" until purchase; that was reversed because blocking the core "build your own collection" loop turned
+out to cost more in onboarding friction than it gained in urgency, and because it left the plan's own
+differentiator (Fit Calculator) effectively hidden behind the same wall it was supposed to help sell past.
+Instead, **Insights** (the wear/service/maintenance trend dashboard, Section 6 Phase 11) is the feature
+gated behind `is_lifetime_unlocked`: it's a "grows with your collection" analytics layer rather than
+something a first-time browser needs in order to evaluate the app, and hiding it doesn't block anyone from
+experiencing the Vault or Fit Calculator. When Insights is opened locked, it shows a `ContentUnavailableView`
+paywall (title, description, and an "Unlock Full Version — \(price)" button) in place of the charts —
+never a disabled entry point or a silently broken screen, matching Section 2.3's rule that a gated screen
+should always explain itself rather than fail quietly. Maintenance reminders and Provenance/document
+storage were considered as additional candidates for gating (both are "matters more to invested collectors
+than first-time browsers" features, same reasoning as Insights) but were left open for now — see Section 9.
 
 **Tie-back to the Entitlements table:** this is exactly the same table designed in Section 2.2 — `PurchaseManager` is simply the iOS/macOS-specific code that keeps `is_lifetime_unlocked` accurate. When V2 adds the subscription, the same class gains a second product and starts also writing `subscription_status`, with no changes needed to how the UI reads that table.
 
@@ -567,6 +601,12 @@ Root: a single `NavigationSplitView` — renders as a sidebar + content + detail
 - **(Added 2026-07-14, from Phase 11)** Whether Insights charts need a time-range filter (e.g. "last year"
   vs. "all time") once collections and wear-log history grow large enough that "all time" gets visually
   noisy — not needed for an initial collection size, worth revisiting once real usage data exists.
+- **(Added 2026-07-14, from the gating revision)** Whether Insights alone is enough gated surface to drive
+  conversion, or whether **Maintenance reminders** and/or **Provenance/document storage** should join it —
+  both were floated as candidates (same "matters more to invested collectors than first-time browsers"
+  reasoning as Insights) but left open in this pass. Explicitly ruled out: gating **data export/backup**,
+  since restricting a user's ability to get their own data out reads as hostile rather than as a value-add,
+  regardless of its conversion potential.
 
 ## 10. Competitive Positioning (Market Research, 2026-07-13)
 

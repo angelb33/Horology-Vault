@@ -18,17 +18,11 @@ struct VaultGridView: View {
     }
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(PurchaseManager.self) private var purchaseManager
 
     @Query private var watches: [Watch]
-    @Query private var entitlements: [Entitlements]
     @State private var sortOption: SortOption = .brand
     @State private var isAddingWatch = false
     @State private var watchPendingDeletion: Watch?
-
-    private var isUnlocked: Bool {
-        entitlements.first?.isLifetimeUnlocked ?? false
-    }
 
     private let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
 
@@ -54,9 +48,6 @@ struct VaultGridView: View {
                     )
                 } else {
                     ScrollView {
-                        if !isUnlocked {
-                            unlockBanner
-                        }
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(sortedWatches) { watch in
                                 NavigationLink(value: watch) {
@@ -64,6 +55,9 @@ struct VaultGridView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    Button("Log Today", systemImage: "checkmark.circle") {
+                                        logWearToday(for: watch)
+                                    }
                                     Button("Delete", systemImage: "trash", role: .destructive) {
                                         watchPendingDeletion = watch
                                     }
@@ -93,7 +87,6 @@ struct VaultGridView: View {
                     } label: {
                         Label("Add Watch", systemImage: "plus")
                     }
-                    .disabled(!isUnlocked)
                 }
             }
             .sheet(isPresented: $isAddingWatch) {
@@ -118,31 +111,17 @@ struct VaultGridView: View {
         }
     }
 
-    /// Persistent unlock prompt for the read-only demo state — per the monetization plan's
-    /// gating decision, this replaces a hard paywall so a browser can see the Vault (and this
-    /// one sample watch) before paying.
-    private var unlockBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Unlock Full Version", systemImage: "lock.open")
-                .font(.headline)
-            Text("Add unlimited watches, straps, and service history with a one-time purchase.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            Button("Unlock Full Version") {
-                Task { await purchaseManager.purchase() }
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal)
-        .padding(.top)
+    /// Quicker access to Wear Log's "Log Today" action (normally reached via `WatchDetailView`'s
+    /// Wear Log section) directly from the Vault grid's context menu, same insert as `logWearToday()`
+    /// there.
+    private func logWearToday(for watch: Watch) {
+        let entry = WearLog(watch: watch)
+        modelContext.insert(entry)
     }
+
 }
 
 #Preview {
     VaultGridView()
         .modelContainer(for: Watch.self, inMemory: true)
-        .environment(PurchaseManager())
 }
