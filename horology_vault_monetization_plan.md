@@ -308,6 +308,21 @@ which made the rest of the Workbench feel like a read-only display.
   replace-on-restore — flagged as an open decision in Section 9.
 - Restoring a backup also calls `NotificationManager.rescheduleAll(for:)` so newly-restored watches get
   their maintenance reminders immediately rather than waiting for the next app launch.
+- **Bug found and fixed (2026-07-14, while investigating whether export could reach Google Drive/iCloud
+  Drive):** the macOS target's App Sandbox entitlement was `ENABLE_USER_SELECTED_FILES = readonly`
+  (compiled to `com.apple.security.files.user-selected.read-only`). Apple's own entitlement docs cover
+  files picked via *either* an Open or a Save dialog under this same key — with only read-only access
+  granted, the CSV export and encrypted backup export `.fileExporter` calls could browse to any save
+  location fine but would fail to actually **write** the file once picked, on macOS only (iOS's document
+  picker doesn't depend on this entitlement at all). Not specific to cloud destinations — this would have
+  failed saving anywhere, including local disk. Fixed by changing the build setting to
+  `ENABLE_USER_SELECTED_FILES = readwrite` in both Debug and Release configs; confirmed via
+  `codesign -d --entitlements :-` that the compiled entitlement is now
+  `com.apple.security.files.user-selected.read-write`, and that both `xcodebuild build` (macOS and iOS
+  Simulator) and the full test suite (37/37) still pass. Separately confirmed (from platform documentation,
+  not a live click-through): iOS's `.fileExporter` already surfaces both iCloud Drive and Google Drive (if
+  installed) as save destinations with no entitlement or code changes needed, since it hands off to the
+  system Files picker rather than requiring an app-specific iCloud container.
 
 ### Phase 7 — Authorized service center directory ✅ Done (2026-07-14)
 - Added `OfficialServiceDirectory.swift`: a bundled, read-only list of official service/support entry
