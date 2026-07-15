@@ -13,7 +13,10 @@ import Foundation
 /// as high-stakes as where to send an expensive watch for service. The root domain is the
 /// one piece of contact info stable and well-known enough to ship with confidence.
 struct OfficialServiceContact: Identifiable {
-    let id = UUID()
+    /// Brand names are unique across the bundled directory, and using one as the identity
+    /// (rather than a fresh `UUID()` per instance) keeps List row identity — and therefore
+    /// `ServiceContactOverride` lookups — stable across view re-renders.
+    var id: String { brand }
     let brand: String
     let name: String
     let website: String

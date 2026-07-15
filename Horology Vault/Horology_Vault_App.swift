@@ -21,6 +21,7 @@ struct Horology_Vault_App: App {
             ProvenanceDoc.self,
             CustomServiceCenter.self,
             Entitlements.self,
+            ServiceContactOverride.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

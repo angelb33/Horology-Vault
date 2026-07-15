@@ -8,16 +8,42 @@
 import SwiftUI
 import SwiftData
 
+/// An `OfficialServiceDirectory` entry merged with any user `ServiceContactOverride` for the
+/// same brand — what the UI actually displays and edits.
+private struct EffectiveOfficialContact: Identifiable {
+    let base: OfficialServiceContact
+    let override: ServiceContactOverride?
+
+    var id: String { base.brand }
+    var brand: String { base.brand }
+    var name: String { override?.name ?? base.name }
+    var website: String { override?.website ?? base.website }
+    var notes: String { override?.notes ?? base.notes }
+    var isOverridden: Bool { override != nil }
+}
+
 struct ServiceCentersView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CustomServiceCenter.name) private var customCenters: [CustomServiceCenter]
+    @Query private var overrides: [ServiceContactOverride]
 
     @State private var searchText = ""
     @State private var isAddingCenter = false
+    @State private var editingCustomCenter: CustomServiceCenter?
+    @State private var editingOfficialContact: EffectiveOfficialContact?
+    @State private var isManufacturerSectionExpanded = true
+    @State private var isCustomSectionExpanded = true
 
-    private var filteredOfficialContacts: [OfficialServiceContact] {
-        guard !searchText.isEmpty else { return OfficialServiceDirectory.contacts }
-        return OfficialServiceDirectory.contacts.filter {
+    private var effectiveOfficialContacts: [EffectiveOfficialContact] {
+        let overridesByBrand = Dictionary(uniqueKeysWithValues: overrides.map { ($0.brand, $0) })
+        return OfficialServiceDirectory.contacts.map {
+            EffectiveOfficialContact(base: $0, override: overridesByBrand[$0.brand])
+        }
+    }
+
+    private var filteredOfficialContacts: [EffectiveOfficialContact] {
+        guard !searchText.isEmpty else { return effectiveOfficialContacts }
+        return effectiveOfficialContacts.filter {
             $0.brand.localizedCaseInsensitiveContains(searchText) || $0.name.localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -33,26 +59,41 @@ struct ServiceCentersView: View {
         NavigationStack {
             List {
                 if !filteredOfficialContacts.isEmpty {
-                    Section("Manufacturer Support") {
+                    DisclosureGroup(isExpanded: $isManufacturerSectionExpanded) {
                         ForEach(filteredOfficialContacts) { contact in
-                            OfficialContactRow(contact: contact)
+                            OfficialContactRow(
+                                contact: contact,
+                                onEdit: { editingOfficialContact = contact },
+                                onReset: { resetOfficialContact(contact) }
+                            )
                         }
+                    } label: {
+                        Text("Manufacturer Support (\(filteredOfficialContacts.count))")
+                            .font(.headline)
                     }
                 }
 
-                Section("My Service Centers") {
+                DisclosureGroup(isExpanded: $isCustomSectionExpanded) {
                     if filteredCustomCenters.isEmpty {
                         Text(customCenters.isEmpty ? "No custom service centers added yet." : "No matches.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(filteredCustomCenters) { center in
-                            CustomCenterRow(center: center)
+                            CustomCenterRow(center: center, onEdit: { editingCustomCenter = center })
                         }
                         .onDelete(perform: deleteCustomCenters)
                     }
+                } label: {
+                    Text("My Service Centers (\(filteredCustomCenters.count))")
+                        .font(.headline)
                 }
             }
             .searchable(text: $searchText, prompt: "Search by brand or name")
+            .onChange(of: searchText) { _, newValue in
+                guard !newValue.isEmpty else { return }
+                isManufacturerSectionExpanded = true
+                isCustomSectionExpanded = true
+            }
             .navigationTitle("Service Centers")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -66,6 +107,12 @@ struct ServiceCentersView: View {
             .sheet(isPresented: $isAddingCenter) {
                 AddServiceCenterView()
             }
+            .sheet(item: $editingCustomCenter) { center in
+                AddServiceCenterView(centerToEdit: center)
+            }
+            .sheet(item: $editingOfficialContact) { contact in
+                EditOfficialContactView(contact: contact)
+            }
         }
     }
 
@@ -74,32 +121,66 @@ struct ServiceCentersView: View {
             modelContext.delete(filteredCustomCenters[index])
         }
     }
+
+    private func resetOfficialContact(_ contact: EffectiveOfficialContact) {
+        guard let override = contact.override else { return }
+        modelContext.delete(override)
+    }
 }
 
 private struct OfficialContactRow: View {
-    let contact: OfficialServiceContact
+    let contact: EffectiveOfficialContact
+    let onEdit: () -> Void
+    let onReset: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(contact.name)
-                .font(.headline)
-            Text(contact.brand)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if let url = URL(string: "https://\(contact.website)") {
-                Link(contact.website, destination: url)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(contact.name)
+                        .font(.headline)
+                    if contact.isOverridden {
+                        Text("Edited")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.secondary.opacity(0.15), in: Capsule())
+                    }
+                }
+                Text(contact.brand)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(contact.website)
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(contact.notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text(contact.notes)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Spacer()
+            if let url = URL(string: "https://\(contact.website)") {
+                Link(destination: url) {
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderless)
+            }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onEdit)
+        .contextMenu {
+            Button("Edit", systemImage: "pencil", action: onEdit)
+            if contact.isOverridden {
+                Button("Reset to Default", systemImage: "arrow.uturn.backward", role: .destructive, action: onReset)
+            }
+        }
     }
 }
 
 private struct CustomCenterRow: View {
     let center: CustomServiceCenter
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -131,6 +212,102 @@ private struct CustomCenterRow: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onEdit)
+        .contextMenu {
+            Button("Edit", systemImage: "pencil", action: onEdit)
+        }
+    }
+}
+
+private struct EditOfficialContactView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    fileprivate let contact: EffectiveOfficialContact
+
+    @State private var name: String
+    @State private var website: String
+    @State private var notes: String
+
+    fileprivate init(contact: EffectiveOfficialContact) {
+        self.contact = contact
+        _name = State(initialValue: contact.name)
+        _website = State(initialValue: contact.website)
+        _notes = State(initialValue: contact.notes)
+    }
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && !website.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(contact.brand) {
+                    TextField("Name", text: $name)
+                    TextField("Website", text: $website)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        #endif
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                }
+                if contact.isOverridden {
+                    Section {
+                        Button("Reset to Default", role: .destructive, action: resetToDefault)
+                    } footer: {
+                        Text("Removes your edits and restores the bundled default for this brand.")
+                    }
+                }
+            }
+            #if os(macOS)
+            .formStyle(.grouped)
+            #endif
+            .navigationTitle("Edit Contact")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                        .disabled(!canSave)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 380, idealWidth: 420, minHeight: 320, idealHeight: 360)
+        #endif
+    }
+
+    private func save() {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedWebsite = website.trimmingCharacters(in: .whitespaces)
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespaces)
+
+        if let existingOverride = contact.override {
+            existingOverride.name = trimmedName
+            existingOverride.website = trimmedWebsite
+            existingOverride.notes = trimmedNotes
+        } else {
+            modelContext.insert(ServiceContactOverride(
+                brand: contact.brand,
+                name: trimmedName,
+                website: trimmedWebsite,
+                notes: trimmedNotes
+            ))
+        }
+        dismiss()
+    }
+
+    private func resetToDefault() {
+        if let existingOverride = contact.override {
+            modelContext.delete(existingOverride)
+        }
+        dismiss()
     }
 }
 
@@ -138,12 +315,24 @@ private struct AddServiceCenterView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var name = ""
-    @State private var brand = ""
-    @State private var phone = ""
-    @State private var website = ""
-    @State private var address = ""
-    @State private var notes = ""
+    private let centerToEdit: CustomServiceCenter?
+
+    @State private var name: String
+    @State private var brand: String
+    @State private var phone: String
+    @State private var website: String
+    @State private var address: String
+    @State private var notes: String
+
+    init(centerToEdit: CustomServiceCenter? = nil) {
+        self.centerToEdit = centerToEdit
+        _name = State(initialValue: centerToEdit?.name ?? "")
+        _brand = State(initialValue: centerToEdit?.brand ?? "")
+        _phone = State(initialValue: centerToEdit?.phone ?? "")
+        _website = State(initialValue: centerToEdit?.website ?? "")
+        _address = State(initialValue: centerToEdit?.address ?? "")
+        _notes = State(initialValue: centerToEdit?.notes ?? "")
+    }
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -171,7 +360,7 @@ private struct AddServiceCenterView: View {
             #if os(macOS)
             .formStyle(.grouped)
             #endif
-            .navigationTitle("Add Service Center")
+            .navigationTitle(centerToEdit == nil ? "Add Service Center" : "Edit Service Center")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -196,15 +385,24 @@ private struct AddServiceCenterView: View {
             return trimmed.isEmpty ? nil : trimmed
         }
 
-        let center = CustomServiceCenter(
-            name: name.trimmingCharacters(in: .whitespaces),
-            brand: trimmedOrNil(brand),
-            phone: trimmedOrNil(phone),
-            website: trimmedOrNil(website),
-            address: trimmedOrNil(address),
-            notes: trimmedOrNil(notes)
-        )
-        modelContext.insert(center)
+        if let centerToEdit {
+            centerToEdit.name = name.trimmingCharacters(in: .whitespaces)
+            centerToEdit.brand = trimmedOrNil(brand)
+            centerToEdit.phone = trimmedOrNil(phone)
+            centerToEdit.website = trimmedOrNil(website)
+            centerToEdit.address = trimmedOrNil(address)
+            centerToEdit.notes = trimmedOrNil(notes)
+        } else {
+            let center = CustomServiceCenter(
+                name: name.trimmingCharacters(in: .whitespaces),
+                brand: trimmedOrNil(brand),
+                phone: trimmedOrNil(phone),
+                website: trimmedOrNil(website),
+                address: trimmedOrNil(address),
+                notes: trimmedOrNil(notes)
+            )
+            modelContext.insert(center)
+        }
         dismiss()
     }
 }
