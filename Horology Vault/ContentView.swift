@@ -98,11 +98,11 @@ struct ContentView: View {
     private func seedDemoDataIfNeeded() {
         guard entitlements.isEmpty, watches.isEmpty else { return }
         modelContext.insert(Watch(
-            brand: "Rolex",
-            model: "Explorer",
-            referenceNumber: "224270",
-            caseDiameterMM: 36,
-            lugToLugMM: 44,
+            brand: "Sample Brand",
+            model: "Example Watch",
+            referenceNumber: "SAMPLE-001",
+            caseDiameterMM: 40,
+            lugToLugMM: 47,
             lugWidthMM: 20
         ))
         modelContext.insert(Entitlements())

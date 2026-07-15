@@ -60,7 +60,36 @@ this plan's V1 scope. A feature outside the monetization plan's original scope, 
 watch anatomy, movements, complications, materials, straps, care, buying, and a glossary — 50 static
 articles across 8 categories, each with its own SF Symbol, and complication topics cross-link into the
 user's own Vault via a shared `Watch.commonComplications` vocabulary (see Architecture below for the
-full design and a hard-won SF Symbol lesson). Treat that doc as the
+full design and a hard-won SF Symbol lesson). A further round of same-day polish shipped later on
+2026-07-15, none of it tied to a new monetization-plan phase number: **Service Center contact fields** —
+`ServiceContactOverride` gained optional `phone`/`address`/`secondaryWebsite` (previously just
+`name`/`website`/`notes`) and `CustomServiceCenter` (which already had `phone`/`address`) gained
+`secondaryWebsite` to match, with `ServiceCentersView`'s edit/add forms and row displays updated
+accordingly (see Architecture below) — plain additive optionals, no migration needed, same pattern as
+`Watch.purchasePrice`. **A UI design pass**, run via the `ui-designer` subagent, introduced a shared
+`SectionHeader.swift` component (centered, `.title2.weight(.semibold)`) that now backs every `Form`/`List`
+Section header and `DisclosureGroup` label app-wide — `AddWatchView`, `WatchDetailView` and its nested
+sheets, `SettingsView`, `ServiceCentersView`, `WishlistView`, `FitCalculatorView`, `MaintenanceView`,
+`LearnHubView` — replacing SwiftUI's default small/uppercase/left-aligned styling (see Architecture below;
+`DashboardView`'s `InsightCard` titles were deliberately left alone, since those are card titles rather than
+Form section headers). **`VaultGridView`'s toolbar was fixed** for iOS 26 Liquid Glass, where adjacent
+`ToolbarItem`s were fusing the sort control and Add button into one shared glass pill (see Architecture
+below). **A stray Xcode 16 build warning was cleaned up** — Xcode's synchronized-group project format was
+auto-including `Info-iOS-BackgroundTasks.plist` (intentionally merged into Info.plist via a build setting,
+not meant to be a Copy Bundle Resources member) as a resource; a
+`PBXFileSystemSynchronizedBuildFileExceptionSet` in `project.pbxproj` now excludes it (see Architecture
+below). This was unrelated to a separate Simulator launch failure the user hit this session
+(`FBSOpenApplicationServiceErrorDomain`/`SBMainWorkspace RequestDenied`) — diagnosed as a stuck
+Simulator/launchd daemon state rather than a code bug (the build itself succeeded), fixable by
+quitting/relaunching Simulator or, per this machine's documented history of stuck system daemons (see the
+StoreKit known issue below), a full restart. **The first-launch demo watch was changed** from a real "Rolex
+Explorer" to an explicitly fictional "Sample Brand" / "Example Watch" placeholder in
+`ContentView.seedDemoDataIfNeeded()`, so a fresh install no longer implies the seeded sample is a real product.
+All of the above builds clean on both macOS and iOS Simulator (`iPhone 17` this session — this machine also
+has `iPhone 16` installed, so the Common Commands section below still points at a real, working device) with
+zero warnings; none touched business logic, so no new tests were added, and none was visually confirmed in
+Xcode's Canvas/Simulator from inside this session (same sandbox limitation noted throughout this file).
+Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -126,7 +155,22 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   AddWishlistItemView, and the three sheets nested in WatchDetailView.swift) since the default macOS Form
   style left-aligns sections in a narrow column instead of the centered, card-style layout `.grouped` gives —
   follow this pattern for any new sheet. The V2 sidebar sections (Strap Shop, Market Value, Community) from
-  the plan are intentionally not added yet — they stay hidden until the subscription ships.
+  the plan are intentionally not added yet — they stay hidden until the subscription ships. **Section
+  headers** (added 2026-07-15) use a shared `SectionHeader.swift` component — a `Text` with `.textCase(nil)`
+  (opting out of the platform's automatic uppercasing), `.title2.weight(.semibold)`, and
+  `.frame(maxWidth: .infinity, alignment: .center)` — used as the `header:` for every `Form`/`List` Section
+  and the `label:` for every `DisclosureGroup` app-wide, in place of a bare `Text`; use it for any new
+  Section/DisclosureGroup rather than reintroducing the platform default. One cosmetic exception:
+  `ServiceCentersView`'s two `DisclosureGroup` labels center within the space left of the trailing
+  disclosure chevron, not the full row width, since centering the label past the built-in chevron would
+  require replacing it. **Toolbars on iOS 26 Liquid Glass** merge adjacent same-placement `ToolbarItem`s
+  into one shared glass capsule by default — `VaultGridView`'s sort control and Add button were fusing into
+  a single pill until a `ToolbarSpacer(.fixed, placement: .primaryAction)` was added between them (2026-07-15).
+  The sort control itself is a `Menu` wrapping a `Picker`, given an icon-only `Label("Sort", systemImage:
+  "arrow.up.arrow.down")`, rather than a bare menu-style `Picker` — a menu-style `Picker` renders the
+  *selected option's text* (e.g. "Brand") as its own toolbar button title, which is what made it render wide
+  in the first place; wrap any similarly compact toolbar picker in a `Menu` with an icon label instead of
+  relying on `.pickerStyle(.menu)` alone.
 - **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,
   empty state via `ContentUnavailableView`, `+` toolbar button sheets `AddWatchView`, context-menu Delete
   with a `confirmationDialog`) → `WatchCardView` (photo thumbnail, smart-cropped via Vision saliency
@@ -226,7 +270,14 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   tested (`ScheduledBackupManagerTests.swift`) — `performBackupIfDue(context:)` is the actual orchestration,
   reading settings from `UserDefaults.standard` directly (a static enum can't hold `@AppStorage`) and
   gating on `Entitlements.isLifetimeUnlocked` fetched from the passed-in `ModelContext` before doing
-  anything else. `SettingsView`'s "Scheduled Backup" section is `@ViewBuilder`-branched on the same
+  anything else. This feature's `BGTaskSchedulerPermittedIdentifiers`/`UIBackgroundModes` entries are merged
+  into the generated iOS Info.plist via the `INFOPLIST_FILE[sdk=...]` build setting pointing at
+  `Info-iOS-BackgroundTasks.plist` — that file is intentionally *not* a Copy Bundle Resources member,
+  since Info.plist merging is a separate build step from resource copying. Xcode 16's synchronized-group
+  project format was nonetheless auto-including it as a stray Copy Bundle Resources member (a build
+  warning); fixed 2026-07-15 with a `PBXFileSystemSynchronizedBuildFileExceptionSet` in `project.pbxproj`
+  excluding it from the app target's synchronized-group membership — confirmed via `plutil -lint` plus
+  clean macOS and iOS Simulator builds with zero warnings. `SettingsView`'s "Scheduled Backup" section is `@ViewBuilder`-branched on the same
   `isUnlocked` pattern `purchaseStatusSection` already uses, showing a compact in-section paywall row
   instead of `DashboardView`'s full-screen treatment, since it's one `Section` in a multi-section `Form`.
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
@@ -258,7 +309,13 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   keyed by `brand`, one row per edited contact, deleted entirely on "Reset to Default" rather than storing
   an empty/default row; `ServiceCentersView` merges base + override into a private `EffectiveOfficialContact`
   before displaying. `CustomServiceCenter` is the separate `@Model` for user-added (not manufacturer-sourced)
-  service centers. `Watch` also has an optional `referenceNumber`. `Strap` has optional
+  service centers. Both `@Model`s gained optional contact fields 2026-07-15: `ServiceContactOverride` added
+  `phone`/`address`/`secondaryWebsite` (the bundled `OfficialServiceContact` struct itself still
+  deliberately carries only name/website/notes — phone and address are override-only, surfaced through
+  `EffectiveOfficialContact`'s passthrough computed properties, never the base struct), and
+  `CustomServiceCenter` (which already had `phone`/`address`) added `secondaryWebsite` to match. Plain
+  additive optionals, no schema migration, same low-risk pattern as `Watch.purchasePrice`. `Watch` also has
+  an optional `referenceNumber`. `Strap` has optional
   `name`, `lengthMM`, and `notes` fields plus a `summary` computed property (`"name · material · width mm"`,
   name omitted if unset) used consistently in pickers/labels — use `strap.summary` rather than re-deriving
   that string. `ProvenanceDoc.fileData` is `@Attribute(.externalStorage)`, same pattern as

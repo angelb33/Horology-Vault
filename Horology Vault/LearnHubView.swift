@@ -39,10 +39,12 @@ struct LearnHubView: View {
                         ForEach(LearnCategory.allCases) { category in
                             let categoryTopics = topics(in: category)
                             if !categoryTopics.isEmpty {
-                                Section(category.rawValue) {
+                                Section {
                                     ForEach(categoryTopics) { topic in
                                         LearnTopicRow(topic: topic)
                                     }
+                                } header: {
+                                    SectionHeader(category.rawValue)
                                 }
                             }
                         }

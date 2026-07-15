@@ -18,11 +18,25 @@ final class ServiceContactOverride {
     var name: String
     var website: String
     var notes: String
+    var phone: String?
+    var address: String?
+    var secondaryWebsite: String?
 
-    init(brand: String, name: String, website: String, notes: String) {
+    init(
+        brand: String,
+        name: String,
+        website: String,
+        notes: String,
+        phone: String? = nil,
+        address: String? = nil,
+        secondaryWebsite: String? = nil
+    ) {
         self.brand = brand
         self.name = name
         self.website = website
         self.notes = notes
+        self.phone = phone
+        self.address = address
+        self.secondaryWebsite = secondaryWebsite
     }
 }

@@ -25,21 +25,25 @@ struct FitCalculatorView: View {
                     )
                 } else if let profile = userProfiles.first {
                     Form {
-                        Section("Watch") {
+                        Section {
                             Picker("Watch", selection: $selectedWatch) {
                                 Text("Select a Watch").tag(Watch?.none)
                                 ForEach(watches) { watch in
                                     Text("\(watch.brand) \(watch.model)").tag(Watch?.some(watch))
                                 }
                             }
+                        } header: {
+                            SectionHeader("Watch")
                         }
 
                         if let selectedWatch {
-                            Section("Fit Preview") {
+                            Section {
                                 FitDiagramView(
                                     lugToLugMM: selectedWatch.lugToLugMM,
                                     wristTopWidthCM: profile.wristTopWidthCM
                                 )
+                            } header: {
+                                SectionHeader("Fit Preview")
                             }
                         }
                     }

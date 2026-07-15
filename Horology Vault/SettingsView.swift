@@ -234,7 +234,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Appearance")
+            SectionHeader("Appearance")
         }
     }
 
@@ -248,7 +248,7 @@ struct SettingsView: View {
                 WristMeasurementField(label: "Side Depth", unit: "cm", value: bindableSideDepth(profile))
             }
         } header: {
-            Text("Wrist Profile")
+            SectionHeader("Wrist Profile")
         } footer: {
             Text("Used by the Fit Calculator to compare a watch's lug-to-lug against your wrist.")
         }
@@ -297,7 +297,7 @@ struct SettingsView: View {
                 Label("Restore from Backup", systemImage: "arrow.clockwise")
             }
         } header: {
-            Text("Data")
+            SectionHeader("Data")
         } footer: {
             Text("CSV covers your watch list; the encrypted backup captures your entire collection, including straps, service history, wear log, and provenance documents.")
         }
@@ -336,7 +336,7 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("Scheduled Backup")
+                SectionHeader("Scheduled Backup")
             } footer: {
                 Text("Automatically saves an encrypted backup to the folder you choose, on the schedule above — no need to remember to do it manually. Needs a folder and a passphrase set first.")
             }
@@ -355,7 +355,7 @@ struct SettingsView: View {
                 }
                 .disabled(purchaseManager.isLoadingProduct)
             } header: {
-                Text("Scheduled Backup")
+                SectionHeader("Scheduled Backup")
             } footer: {
                 Text("Manual export and the Encrypted Backup button above stay free — this only unlocks hands-off, automatic backups on a schedule.")
             }
@@ -410,17 +410,19 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
             }
         } header: {
-            Text("Purchase")
+            SectionHeader("Purchase")
         }
     }
 
     // MARK: About
 
     private var aboutSection: some View {
-        Section("About") {
+        Section {
             LabeledContent("App", value: "Horology Vault")
             LabeledContent("Version", value: appVersionString)
             LabeledContent("Support", value: "angelburgosjr@gmail.com")
+        } header: {
+            SectionHeader("About")
         }
     }
 

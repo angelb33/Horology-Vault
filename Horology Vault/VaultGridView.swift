@@ -74,13 +74,30 @@ struct VaultGridView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Picker("Sort", selection: $sortOption) {
-                        ForEach(SortOption.allCases) { option in
-                            Text(option.rawValue).tag(option)
+                    // A plain menu-style Picker shows the *selected option's text*
+                    // ("Brand", "Acquisition Date", ...) as its toolbar button title,
+                    // which is what made this control render as a wide pill. Wrapping
+                    // the Picker in a Menu with an icon-only label keeps the same
+                    // tap-to-choose behavior (SwiftUI still checkmarks the selected
+                    // option) while giving the toolbar button a small, fixed icon
+                    // size that matches the Add button instead of growing with the
+                    // selected option's label length.
+                    Menu {
+                        Picker("Sort", selection: $sortOption) {
+                            ForEach(SortOption.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
                         }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
-                    .pickerStyle(.menu)
                 }
+                // Without an explicit spacer, iOS 26's Liquid Glass toolbar fuses
+                // adjacent primaryAction items into one shared glass capsule, so the
+                // Sort menu and the Add button read as a single merged pill. A
+                // ToolbarSpacer breaks the shared background so each control gets its
+                // own capsule and reads as a distinct, separately-tappable action.
+                ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         isAddingWatch = true

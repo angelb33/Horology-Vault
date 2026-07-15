@@ -41,17 +41,21 @@ struct MaintenanceView: View {
                 } else {
                     List {
                         if !dueWatches.isEmpty {
-                            Section("Service Due") {
+                            Section {
                                 ForEach(dueWatches) { watch in
                                     MaintenanceRow(watch: watch, isDue: true)
                                 }
+                            } header: {
+                                SectionHeader("Service Due")
                             }
                         }
                         if !upToDateWatches.isEmpty {
-                            Section("Up to Date") {
+                            Section {
                                 ForEach(upToDateWatches) { watch in
                                     MaintenanceRow(watch: watch, isDue: false)
                                 }
+                            } header: {
+                                SectionHeader("Up to Date")
                             }
                         }
                     }

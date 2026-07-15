@@ -1,5 +1,76 @@
 # Session Log
 
+## 2026-07-15 — Session 8
+
+### Accomplished this session
+
+- **Service Center contact fields (Phase 7 follow-up):** `ServiceContactOverride.swift` gained optional
+  `phone`, `address`, and `secondaryWebsite` (it previously only had `name`/`website`/`notes`).
+  `CustomServiceCenter.swift` (which already had `phone`/`address`) gained `secondaryWebsite` to match. The
+  bundled `OfficialServiceDirectory` data itself is unchanged and stays deliberately website-only — the new
+  fields only ever come from a user-entered override. `ServiceCentersView.swift`: `EffectiveOfficialContact`
+  gained passthrough computed properties for the new fields (sourced only from `override`), `EditOfficialContactView`
+  and `AddServiceCenterView` both gained matching form fields (Second Website, Phone, Address) using the
+  existing `trimmedOrNil` convention, and `OfficialContactRow`/`CustomCenterRow` display the new fields
+  conditionally. Plain additive optionals, no schema migration.
+- **UI design pass (via the `ui-designer` subagent, explicitly invoked):** added a new shared
+  `SectionHeader.swift` component — centered, `.title2.weight(.semibold)` (started at `.title3`, bumped up
+  a step after feedback that it was still too small) — now backing every `Form`/`List` Section header and
+  `DisclosureGroup` label app-wide (`AddWatchView`, `WatchDetailView` and its nested sheets, `SettingsView`,
+  `ServiceCentersView`, `WishlistView`, `FitCalculatorView`, `MaintenanceView`, `LearnHubView`), replacing
+  SwiftUI's default small/uppercase/left-aligned header style. `DashboardView`'s `InsightCard` titles were
+  deliberately left alone (card titles, not Form section headers — centering would fight the card layout).
+  Known cosmetic caveat: `ServiceCentersView`'s two `DisclosureGroup` labels center within the space left of
+  the trailing disclosure chevron, not the full row, since centering past the built-in chevron would require
+  replacing it.
+- **`VaultGridView.swift` iOS toolbar fix:** the sort-by menu and "+" Add Watch button were rendering fused
+  into one pill on iOS 26 Liquid Glass toolbars (adjacent `ToolbarItem`s in the same `.primaryAction`
+  placement share one glass capsule). Fixed with a `ToolbarSpacer(.fixed, placement: .primaryAction)`
+  between them. After feedback that the sort control was still too big, replaced the menu-style `Picker`
+  (which renders the *selected option's text*, e.g. "Brand", as its toolbar title) with a `Menu` wrapping
+  that same `Picker`, given an icon-only `Label("Sort", systemImage: "arrow.up.arrow.down")` — now a small
+  fixed-size icon button matching the Add button's footprint, same tap-to-choose/checkmark behavior
+  preserved.
+- **Project file cleanup:** `Horology Vault.xcodeproj/project.pbxproj` gained a
+  `PBXFileSystemSynchronizedBuildFileExceptionSet` excluding `Info-iOS-BackgroundTasks.plist` from the app
+  target's Copy Bundle Resources membership. That file is intentionally referenced via the
+  `INFOPLIST_FILE[sdk=...]` build setting to merge `BGTaskSchedulerPermittedIdentifiers`/`UIBackgroundModes`
+  into the generated Info.plist (Phase 12's existing, correct mechanism), but Xcode 16's synchronized-group
+  project format was also auto-including it as a stray Copy Bundle Resources member (a build warning) — now
+  fixed, confirmed via `plutil -lint` and clean macOS + iOS Simulator builds. Unrelated: a Simulator launch
+  failure hit while trying to run the app in Xcode (`FBSOpenApplicationServiceErrorDomain`/`SBMainWorkspace
+  RequestDenied`) was diagnosed as a stuck Simulator/launchd daemon state, not a code bug (the build itself
+  succeeded) — standard fix is quitting/relaunching Simulator or, per this machine's documented history of
+  stuck system daemons (see the StoreKit known issue in `CLAUDE.md`), a full restart if needed.
+- **Demo/seed watch changed:** `ContentView.seedDemoDataIfNeeded()` (first-launch-only, gated on both
+  `entitlements` and `watches` being empty) previously created a real "Rolex Explorer" as the sample watch.
+  Changed to an explicitly fictional placeholder — brand "Sample Brand", model "Example Watch", reference
+  number "SAMPLE-001", case diameter 40mm / lug-to-lug 47mm / lug width 20mm (dimensions kept plausible,
+  only brand/model changed) — so a fresh install doesn't imply the seeded sample is a real product. Went
+  through two iterations; a first attempt ("Meridian & Co. Wayfinder 40") was judged not obviously fake
+  enough before landing on the literal "Sample Brand"/"Example Watch" naming.
+- All changes verified via `xcodebuild` on both macOS and iOS Simulator (`iPhone 17` — this machine also has
+  `iPhone 16` installed, so `CLAUDE.md`'s documented build command still targets a real device) with zero
+  warnings by session's end. No test coverage was added (none of the changes were business-logic-shaped;
+  the `test-writer` agent wasn't invoked). None of this was visually confirmed in Xcode's Canvas/Simulator
+  from inside the session — same longstanding sandbox limitation as prior UI work.
+- `CLAUDE.md` and `horology_vault_monetization_plan.md` were updated in place to reflect all of the above,
+  following each doc's established pattern (`CLAUDE.md`'s "Project state"/Architecture narrative,
+  the plan doc's revision-note-plus-inline-phase-update pattern under Phase 7).
+
+### Pending / next steps
+
+- This session did not touch the open **macOS-native StoreKit Testing purchase failure**
+  (`ASDErrorDomain Code=825`) logged at the end of Session 7 — still first priority whenever purchase-flow
+  work resumes; see `CLAUDE.md`'s "Known issue" bullet for the full writeup and the Mac-restart next step.
+- None of this session's UI changes (SectionHeader typography, the Sort menu icon button, the new Service
+  Center form fields) have been visually confirmed by the user in Xcode yet — worth a pass before treating
+  them as final, same outstanding gap as recent sessions.
+- Working tree was left uncommitted at session close (documentation-focused close-out, not a full
+  close-session run) — review the diff and commit when ready.
+- V2 (subscription tier) remains out of scope, gated on V1 getting real user traction — do not start
+  unprompted.
+
 ## 2026-07-15 — Session 7
 
 ### Accomplished this session

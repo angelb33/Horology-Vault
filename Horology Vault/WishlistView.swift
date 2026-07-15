@@ -111,11 +111,13 @@ private struct AddWishlistItemView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Watch") {
+                Section {
                     TextField("Brand", text: $brand)
                     TextField("Model", text: $model)
+                } header: {
+                    SectionHeader("Watch")
                 }
-                Section("Target Price") {
+                Section {
                     HStack {
                         Text("Target Price")
                         Spacer()
@@ -126,10 +128,14 @@ private struct AddWishlistItemView: View {
                             #endif
                             .frame(maxWidth: 120)
                     }
+                } header: {
+                    SectionHeader("Target Price")
                 }
-                Section("Notes") {
+                Section {
                     TextField("Reference, dream spec, where to find it…", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
+                } header: {
+                    SectionHeader("Notes")
                 }
             }
             #if os(macOS)

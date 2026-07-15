@@ -19,6 +19,9 @@ private struct EffectiveOfficialContact: Identifiable {
     var name: String { override?.name ?? base.name }
     var website: String { override?.website ?? base.website }
     var notes: String { override?.notes ?? base.notes }
+    var phone: String? { override?.phone }
+    var address: String? { override?.address }
+    var secondaryWebsite: String? { override?.secondaryWebsite }
     var isOverridden: Bool { override != nil }
 }
 
@@ -68,8 +71,7 @@ struct ServiceCentersView: View {
                             )
                         }
                     } label: {
-                        Text("Manufacturer Support (\(filteredOfficialContacts.count))")
-                            .font(.headline)
+                        SectionHeader("Manufacturer Support (\(filteredOfficialContacts.count))")
                     }
                 }
 
@@ -84,8 +86,7 @@ struct ServiceCentersView: View {
                         .onDelete(perform: deleteCustomCenters)
                     }
                 } label: {
-                    Text("My Service Centers (\(filteredCustomCenters.count))")
-                        .font(.headline)
+                    SectionHeader("My Service Centers (\(filteredCustomCenters.count))")
                 }
             }
             .searchable(text: $searchText, prompt: "Search by brand or name")
@@ -154,6 +155,21 @@ private struct OfficialContactRow: View {
                 Text(contact.website)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let secondaryWebsite = contact.secondaryWebsite, !secondaryWebsite.isEmpty {
+                    Text(secondaryWebsite)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let phone = contact.phone, !phone.isEmpty {
+                    Text(phone)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let address = contact.address, !address.isEmpty {
+                    Text(address)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(contact.notes)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -200,6 +216,10 @@ private struct CustomCenterRow: View {
                 Link(website, destination: url)
                     .font(.caption)
             }
+            if let secondaryWebsite = center.secondaryWebsite, !secondaryWebsite.isEmpty, let url = URL(string: secondaryWebsite.hasPrefix("http") ? secondaryWebsite : "https://\(secondaryWebsite)") {
+                Link(secondaryWebsite, destination: url)
+                    .font(.caption)
+            }
             if let address = center.address, !address.isEmpty {
                 Text(address)
                     .font(.caption)
@@ -229,12 +249,18 @@ private struct EditOfficialContactView: View {
     @State private var name: String
     @State private var website: String
     @State private var notes: String
+    @State private var phone: String
+    @State private var address: String
+    @State private var secondaryWebsite: String
 
     fileprivate init(contact: EffectiveOfficialContact) {
         self.contact = contact
         _name = State(initialValue: contact.name)
         _website = State(initialValue: contact.website)
         _notes = State(initialValue: contact.notes)
+        _phone = State(initialValue: contact.phone ?? "")
+        _address = State(initialValue: contact.address ?? "")
+        _secondaryWebsite = State(initialValue: contact.secondaryWebsite ?? "")
     }
 
     private var canSave: Bool {
@@ -244,14 +270,26 @@ private struct EditOfficialContactView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(contact.brand) {
+                Section {
                     TextField("Name", text: $name)
                     TextField("Website", text: $website)
                         #if os(iOS)
                         .keyboardType(.URL)
                         #endif
+                    TextField("Second Website (optional)", text: $secondaryWebsite)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        #endif
+                    TextField("Phone (optional)", text: $phone)
+                        #if os(iOS)
+                        .keyboardType(.phonePad)
+                        #endif
+                    TextField("Address (optional)", text: $address, axis: .vertical)
+                        .lineLimit(2, reservesSpace: true)
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
+                } header: {
+                    SectionHeader(contact.brand)
                 }
                 if contact.isOverridden {
                     Section {
@@ -284,20 +322,34 @@ private struct EditOfficialContactView: View {
     }
 
     private func save() {
+        func trimmedOrNil(_ text: String) -> String? {
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedWebsite = website.trimmingCharacters(in: .whitespaces)
         let trimmedNotes = notes.trimmingCharacters(in: .whitespaces)
+        let trimmedPhone = trimmedOrNil(phone)
+        let trimmedAddress = trimmedOrNil(address)
+        let trimmedSecondaryWebsite = trimmedOrNil(secondaryWebsite)
 
         if let existingOverride = contact.override {
             existingOverride.name = trimmedName
             existingOverride.website = trimmedWebsite
             existingOverride.notes = trimmedNotes
+            existingOverride.phone = trimmedPhone
+            existingOverride.address = trimmedAddress
+            existingOverride.secondaryWebsite = trimmedSecondaryWebsite
         } else {
             modelContext.insert(ServiceContactOverride(
                 brand: contact.brand,
                 name: trimmedName,
                 website: trimmedWebsite,
-                notes: trimmedNotes
+                notes: trimmedNotes,
+                phone: trimmedPhone,
+                address: trimmedAddress,
+                secondaryWebsite: trimmedSecondaryWebsite
             ))
         }
         dismiss()
@@ -321,6 +373,7 @@ private struct AddServiceCenterView: View {
     @State private var brand: String
     @State private var phone: String
     @State private var website: String
+    @State private var secondaryWebsite: String
     @State private var address: String
     @State private var notes: String
 
@@ -330,6 +383,7 @@ private struct AddServiceCenterView: View {
         _brand = State(initialValue: centerToEdit?.brand ?? "")
         _phone = State(initialValue: centerToEdit?.phone ?? "")
         _website = State(initialValue: centerToEdit?.website ?? "")
+        _secondaryWebsite = State(initialValue: centerToEdit?.secondaryWebsite ?? "")
         _address = State(initialValue: centerToEdit?.address ?? "")
         _notes = State(initialValue: centerToEdit?.notes ?? "")
     }
@@ -341,20 +395,31 @@ private struct AddServiceCenterView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Service Center") {
+                Section {
                     TextField("Name", text: $name)
                     TextField("Brand (optional)", text: $brand)
                     TextField("Phone", text: $phone)
+                        #if os(iOS)
+                        .keyboardType(.phonePad)
+                        #endif
                     TextField("Website", text: $website)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        #endif
+                    TextField("Second Website (optional)", text: $secondaryWebsite)
                         #if os(iOS)
                         .keyboardType(.URL)
                         #endif
                     TextField("Address", text: $address, axis: .vertical)
                         .lineLimit(2, reservesSpace: true)
+                } header: {
+                    SectionHeader("Service Center")
                 }
-                Section("Notes") {
+                Section {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
+                } header: {
+                    SectionHeader("Notes")
                 }
             }
             #if os(macOS)
@@ -390,6 +455,7 @@ private struct AddServiceCenterView: View {
             centerToEdit.brand = trimmedOrNil(brand)
             centerToEdit.phone = trimmedOrNil(phone)
             centerToEdit.website = trimmedOrNil(website)
+            centerToEdit.secondaryWebsite = trimmedOrNil(secondaryWebsite)
             centerToEdit.address = trimmedOrNil(address)
             centerToEdit.notes = trimmedOrNil(notes)
         } else {
@@ -398,6 +464,7 @@ private struct AddServiceCenterView: View {
                 brand: trimmedOrNil(brand),
                 phone: trimmedOrNil(phone),
                 website: trimmedOrNil(website),
+                secondaryWebsite: trimmedOrNil(secondaryWebsite),
                 address: trimmedOrNil(address),
                 notes: trimmedOrNil(notes)
             )

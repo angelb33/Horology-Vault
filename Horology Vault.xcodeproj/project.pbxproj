@@ -29,9 +29,22 @@
 		0B78E1273001925B000C3DF4 /* Horology VaultUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Horology VaultUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		0B78E1FF3001925B000C3DF4 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-iOS-BackgroundTasks.plist",
+			);
+			target = 0B78E10D30019259000C3DF4 /* Horology Vault */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0B78E11030019259000C3DF4 /* Horology Vault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0B78E1FF3001925B000C3DF4 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
 			path = "Horology Vault";
 			sourceTree = "<group>";
 		};

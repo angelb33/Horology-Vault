@@ -104,7 +104,7 @@ struct AddWatchView: View {
     }
 
     private var detailsSection: some View {
-        Section("Details") {
+        Section {
             TextField("Brand", text: $brand)
             TextField("Model", text: $model)
             TextField("Reference Number", text: $referenceNumber)
@@ -116,11 +116,13 @@ struct AddWatchView: View {
                     #endif
                     .frame(maxWidth: 120)
             }
+        } header: {
+            SectionHeader("Details")
         }
     }
 
     private var complicationsSection: some View {
-        Section("Complications") {
+        Section {
             ForEach(Watch.commonComplications, id: \.self) { complication in
                 Toggle(complication, isOn: Binding(
                     get: { selectedComplications.contains(complication) },
@@ -130,19 +132,23 @@ struct AddWatchView: View {
                     }
                 ))
             }
+        } header: {
+            SectionHeader("Complications")
         }
     }
 
     private var measurementsSection: some View {
-        Section("Measurements") {
+        Section {
             MeasurementField(label: "Case Diameter", unit: "mm", value: $caseDiameterMM)
             MeasurementField(label: "Lug-to-Lug", unit: "mm", value: $lugToLugMM)
             MeasurementField(label: "Lug Width", unit: "mm", value: $lugWidthMM)
+        } header: {
+            SectionHeader("Measurements")
         }
     }
 
     private var photoSection: some View {
-        Section("Photo") {
+        Section {
             #if os(macOS)
             Button {
                 isImportingPhoto = true
@@ -161,6 +167,8 @@ struct AddWatchView: View {
                     photoData = nil
                 }
             }
+        } header: {
+            SectionHeader("Photo")
         }
     }
 

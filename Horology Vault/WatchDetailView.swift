@@ -83,7 +83,7 @@ struct WatchDetailView: View {
     }
 
     private var overviewSection: some View {
-        Section("Overview") {
+        Section {
             LabeledContent("Brand", value: watch.brand)
             LabeledContent("Model", value: watch.model)
             if let referenceNumber = watch.referenceNumber, !referenceNumber.isEmpty {
@@ -99,11 +99,13 @@ struct WatchDetailView: View {
             if let purchasePrice = watch.purchasePrice {
                 LabeledContent("Purchase Price", value: purchasePrice.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))
             }
+        } header: {
+            SectionHeader("Overview")
         }
     }
 
     private var strapsSection: some View {
-        Section("Straps") {
+        Section {
             if let attached = watch.attachedStrap {
                 LabeledContent("Attached", value: attached.summary)
                 if let notes = attached.notes, !notes.isEmpty {
@@ -130,6 +132,8 @@ struct WatchDetailView: View {
             }
 
             Button("Add New Strap…") { isAddingStrap = true }
+        } header: {
+            SectionHeader("Straps")
         }
     }
 
@@ -143,7 +147,7 @@ struct WatchDetailView: View {
     }
 
     private var serviceHistorySection: some View {
-        Section("Service History") {
+        Section {
             AccuracyChartView(serviceRecords: watch.serviceRecords)
 
             ForEach(watch.serviceRecords.sorted(by: { $0.datePerformed > $1.datePerformed })) { record in
@@ -157,11 +161,13 @@ struct WatchDetailView: View {
             }
 
             Button("Log Service…") { isLoggingService = true }
+        } header: {
+            SectionHeader("Service History")
         }
     }
 
     private var wearLogSection: some View {
-        Section("Wear Log") {
+        Section {
             Button("Log Today") { logWearToday() }
 
             ForEach(watch.wearLogs.sorted(by: { $0.dateWorn > $1.dateWorn })) { entry in
@@ -175,6 +181,8 @@ struct WatchDetailView: View {
                     }
                 }
             }
+        } header: {
+            SectionHeader("Wear Log")
         }
     }
 
@@ -184,7 +192,7 @@ struct WatchDetailView: View {
     }
 
     private var provenanceSection: some View {
-        Section("Provenance") {
+        Section {
             ForEach(watch.provenanceDocs.sorted(by: { $0.dateAdded > $1.dateAdded })) { doc in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -205,6 +213,8 @@ struct WatchDetailView: View {
             .onDelete(perform: deleteProvenanceDocs)
 
             Button("Add Document…") { isAddingProvenanceDoc = true }
+        } header: {
+            SectionHeader("Provenance")
         }
     }
 
@@ -216,13 +226,15 @@ struct WatchDetailView: View {
     }
 
     private var fitPreviewSection: some View {
-        Section("Fit Preview") {
+        Section {
             if let profile = userProfiles.first {
                 FitDiagramView(lugToLugMM: watch.lugToLugMM, wristTopWidthCM: profile.wristTopWidthCM)
             } else {
                 Text("Add your wrist measurements in Settings to preview fit.")
                     .foregroundStyle(.secondary)
             }
+        } header: {
+            SectionHeader("Fit Preview")
         }
     }
 }
@@ -246,7 +258,7 @@ private struct AddStrapView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Strap") {
+                Section {
                     TextField("Name", text: $name)
                     TextField("Material", text: $material)
                     LabeledContent("Width") {
@@ -273,10 +285,14 @@ private struct AddStrapView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                } header: {
+                    SectionHeader("Strap")
                 }
-                Section("Notes") {
+                Section {
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
+                } header: {
+                    SectionHeader("Notes")
                 }
             }
             #if os(macOS)
@@ -334,11 +350,13 @@ private struct AddServiceRecordView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Service") {
+                Section {
                     DatePicker("Date Performed", selection: $datePerformed, displayedComponents: .date)
                     TextField("Service Type", text: $serviceType)
+                } header: {
+                    SectionHeader("Service")
                 }
-                Section("Accuracy") {
+                Section {
                     LabeledContent("Accuracy Delta") {
                         HStack(spacing: 4) {
                             TextField("0", value: $accuracyDeltaSPD, format: .number)
@@ -351,6 +369,8 @@ private struct AddServiceRecordView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                } header: {
+                    SectionHeader("Accuracy")
                 }
             }
             #if os(macOS)
@@ -406,7 +426,7 @@ private struct AddProvenanceDocView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Document") {
+                Section {
                     Picker("Type", selection: $docType) {
                         ForEach(ProvenanceDocType.allCases) { type in
                             Text(type.rawValue).tag(type)
@@ -421,6 +441,8 @@ private struct AddProvenanceDocView: View {
                             Label("Choose File…", systemImage: "doc.badge.plus")
                         }
                     }
+                } header: {
+                    SectionHeader("Document")
                 }
             }
             #if os(macOS)

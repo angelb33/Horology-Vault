@@ -48,6 +48,17 @@
 > paywall. Raw purchase price is shown for free on `WatchDetailView`; the derived cost-per-wear stays
 > Insights-exclusive by design. Included in the encrypted backup, deliberately excluded from CSV. Build
 > succeeds on both platforms, full test suite passing (40/40).
+>
+> **Revision note (2026-07-15):** A same-day polish pass, not tied to a new phase number: Phase 7's
+> `ServiceContactOverride` and `CustomServiceCenter` gained optional `phone`/`address`/`secondaryWebsite`
+> fields (see Phase 7's follow-up entry below — the bundled `OfficialServiceDirectory` data itself is
+> unchanged and still deliberately website-only); a shared `SectionHeader.swift` component (centered,
+> `.title2.weight(.semibold)`) replaced the platform-default section-header styling app-wide, via the
+> `ui-designer` subagent; `VaultGridView`'s toolbar was fixed for iOS 26 Liquid Glass, where the sort control
+> and Add button were rendering fused into one pill; a stray Xcode 16 build warning around
+> `Info-iOS-BackgroundTasks.plist` (Phase 12) was cleaned up; and the first-launch demo watch was changed
+> from a real "Rolex Explorer" to an explicitly fictional "Sample Brand" / "Example Watch" placeholder. No
+> schema migration, no new gating, no business logic touched. Full detail in `CLAUDE.md`.
 
 ## 1. Feature-to-Tier Table
 
@@ -234,9 +245,11 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   records, wear logs, provenance docs, wishlist items, and the wrist profile. Restore is additive rather
   than replace-all.
 - **Authorized service center directory:** `OfficialServiceDirectory` (bundled, 169 manufacturers spanning
-  mass-market through independent haute horlogerie, website-only contact info, user-editable per entry via
-  `ServiceContactOverride` with a reset-to-default action) plus user-added, user-editable
-  `CustomServiceCenter` entries, browsable/searchable in independently collapsible sections of the
+  mass-market through independent haute horlogerie, website-only contact info by design, user-editable per
+  entry via `ServiceContactOverride` with a reset-to-default action — as of 2026-07-15 an override can also
+  add a phone number, address, and secondary website, though the bundled defaults themselves stay
+  website-only) plus user-added, user-editable `CustomServiceCenter` entries (name, brand, phone, website,
+  secondary website, address, notes), browsable/searchable in independently collapsible sections of the
   `ServiceCentersView` sidebar screen.
 - **Entitlements + StoreKit 2:** `Entitlements` `@Model` and `PurchaseManager` (StoreKit 2, one
   non-consumable lifetime-unlock product) gate the Insights dashboard and (as of 2026-07-15) Scheduled
@@ -396,6 +409,14 @@ which made the rest of the Workbench feel like a read-only display.
     with any matching override into a private `EffectiveOfficialContact` before display, and
     `OfficialServiceContact.id` was changed from a fresh `UUID()` to the `brand` string so row identity
     (and the override lookup keyed on it) stays stable across re-renders.
+  - **Follow-up enhancement (2026-07-15):** `ServiceContactOverride` gained optional `phone`, `address`,
+    and `secondaryWebsite` fields (it previously only carried `name`/`website`/`notes`), and
+    `CustomServiceCenter` (which already had `phone`/`address`) gained `secondaryWebsite` to match. This
+    does not reopen the bundled-data design decision above — `OfficialServiceDirectory`'s 169 entries stay
+    website-only; the new fields only ever come from a user-entered override, surfaced through
+    `EffectiveOfficialContact`'s passthrough computed properties. `EditOfficialContactView` and
+    `AddServiceCenterView` both gained matching form fields; `OfficialContactRow`/`CustomCenterRow` display
+    them conditionally. Plain additive optionals, no migration.
 - Added "Service Centers" as a 6th sidebar entry in `ContentView.Section` (between Maintenance and
   Settings), matching the precedent Phase 4 set for Fit Calculator.
 

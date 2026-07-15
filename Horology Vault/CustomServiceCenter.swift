@@ -17,6 +17,7 @@ final class CustomServiceCenter {
     var brand: String?
     var phone: String?
     var website: String?
+    var secondaryWebsite: String?
     var address: String?
     var notes: String?
 
@@ -25,6 +26,7 @@ final class CustomServiceCenter {
         brand: String? = nil,
         phone: String? = nil,
         website: String? = nil,
+        secondaryWebsite: String? = nil,
         address: String? = nil,
         notes: String? = nil
     ) {
@@ -32,6 +34,7 @@ final class CustomServiceCenter {
         self.brand = brand
         self.phone = phone
         self.website = website
+        self.secondaryWebsite = secondaryWebsite
         self.address = address
         self.notes = notes
     }
