@@ -81,4 +81,12 @@ final class Watch {
         let since = lastServiceDate ?? acquisitionDate
         return wearLogs.filter { $0.dateWorn > since }.count
     }
+
+    /// The canonical complication vocabulary — shared by `AddWatchView`'s toggle list and
+    /// `LearnHubContent`'s per-complication topics, so the two can't drift into mismatched
+    /// spellings and silently break the Learn Hub cross-link to a user's own watches.
+    static let commonComplications = [
+        "Date", "Day-Date", "Chronograph", "GMT", "Moonphase",
+        "Power Reserve", "World Time", "Perpetual Calendar", "Tourbillon", "Alarm"
+    ]
 }

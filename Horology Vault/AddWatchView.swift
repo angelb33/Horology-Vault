@@ -34,13 +34,6 @@ struct AddWatchView: View {
     @State private var isImportingPhoto = false
     #endif
 
-    /// A small curated set of common complications keeps entry to a couple of taps
-    /// rather than free-form typing, while still covering the vast majority of watches.
-    private let commonComplications = [
-        "Date", "Day-Date", "Chronograph", "GMT", "Moonphase",
-        "Power Reserve", "World Time", "Perpetual Calendar", "Tourbillon", "Alarm"
-    ]
-
     init(watchToEdit: Watch? = nil) {
         self.watchToEdit = watchToEdit
         _brand = State(initialValue: watchToEdit?.brand ?? "")
@@ -118,7 +111,7 @@ struct AddWatchView: View {
 
     private var complicationsSection: some View {
         Section("Complications") {
-            ForEach(commonComplications, id: \.self) { complication in
+            ForEach(Watch.commonComplications, id: \.self) { complication in
                 Toggle(complication, isOn: Binding(
                     get: { selectedComplications.contains(complication) },
                     set: { isOn in
@@ -179,7 +172,7 @@ struct AddWatchView: View {
         let trimmedReference = referenceNumber.trimmingCharacters(in: .whitespaces)
         let trimmedBrand = brand.trimmingCharacters(in: .whitespaces)
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
-        let complications = commonComplications.filter { selectedComplications.contains($0) }
+        let complications = Watch.commonComplications.filter { selectedComplications.contains($0) }
 
         let targetWatch: Watch
         if let watchToEdit {

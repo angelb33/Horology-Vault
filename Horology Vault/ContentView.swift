@@ -11,6 +11,7 @@ import SwiftData
 struct ContentView: View {
     enum Section: String, CaseIterable, Identifiable {
         case vault = "Vault"
+        case learnHub = "Learn Hub"
         case insights = "Insights"
         case fitCalculator = "Fit Calculator"
         case wishlist = "Wishlist"
@@ -23,6 +24,7 @@ struct ContentView: View {
         var systemImage: String {
             switch self {
             case .vault: "clock"
+            case .learnHub: "book.closed"
             case .insights: "chart.bar.xaxis"
             case .fitCalculator: "ruler"
             case .wishlist: "star"
@@ -56,6 +58,8 @@ struct ContentView: View {
             switch selection {
             case .vault, nil:
                 VaultGridView()
+            case .learnHub:
+                LearnHubView()
             case .insights:
                 DashboardView()
             case .fitCalculator:

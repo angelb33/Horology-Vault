@@ -305,38 +305,60 @@ struct SettingsView: View {
 
     // MARK: Scheduled Backup
 
+    @ViewBuilder
     private var scheduledBackupSection: some View {
-        Section {
-            Toggle("Automatic Backup", isOn: $isScheduledBackupEnabled)
+        if isUnlocked {
+            Section {
+                Toggle("Automatic Backup", isOn: $isScheduledBackupEnabled)
 
-            LabeledContent("Backup Folder") {
-                Button(scheduledBackupFolderName) {
-                    isPickingBackupFolder = true
-                }
-            }
-
-            if isScheduledBackupEnabled {
-                Picker("Frequency", selection: $scheduledBackupFrequency) {
-                    ForEach(ScheduledBackupManager.BackupFrequency.allCases) { frequency in
-                        Text(frequency.label).tag(frequency)
+                LabeledContent("Backup Folder") {
+                    Button(scheduledBackupFolderName) {
+                        isPickingBackupFolder = true
                     }
                 }
-            }
 
-            Button(hasStoredBackupPassphrase ? "Change Backup Passphrase" : "Set Backup Passphrase") {
-                passphrasePurpose = .settingScheduledBackupPassphrase
-            }
-
-            if hasStoredBackupPassphrase {
-                Button("Remove Stored Passphrase", role: .destructive) {
-                    KeychainHelper.deletePassphrase()
-                    hasStoredBackupPassphrase = false
+                if isScheduledBackupEnabled {
+                    Picker("Frequency", selection: $scheduledBackupFrequency) {
+                        ForEach(ScheduledBackupManager.BackupFrequency.allCases) { frequency in
+                            Text(frequency.label).tag(frequency)
+                        }
+                    }
                 }
+
+                Button(hasStoredBackupPassphrase ? "Change Backup Passphrase" : "Set Backup Passphrase") {
+                    passphrasePurpose = .settingScheduledBackupPassphrase
+                }
+
+                if hasStoredBackupPassphrase {
+                    Button("Remove Stored Passphrase", role: .destructive) {
+                        KeychainHelper.deletePassphrase()
+                        hasStoredBackupPassphrase = false
+                    }
+                }
+            } header: {
+                Text("Scheduled Backup")
+            } footer: {
+                Text("Automatically saves an encrypted backup to the folder you choose, on the schedule above — no need to remember to do it manually. Needs a folder and a passphrase set first.")
             }
-        } header: {
-            Text("Scheduled Backup")
-        } footer: {
-            Text("Automatically saves an encrypted backup to the folder you choose, on the schedule above — no need to remember to do it manually. Needs a folder and a passphrase set first.")
+        } else {
+            Section {
+                Label("Automatic Backup is a Full Version Feature", systemImage: "lock")
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await purchaseManager.purchase() }
+                } label: {
+                    if let product = purchaseManager.product {
+                        Text("Unlock Full Version — \(product.displayPrice)")
+                    } else {
+                        Text("Unlock Full Version")
+                    }
+                }
+                .disabled(purchaseManager.isLoadingProduct)
+            } header: {
+                Text("Scheduled Backup")
+            } footer: {
+                Text("Manual export and the Encrypted Backup button above stay free — this only unlocks hands-off, automatic backups on a schedule.")
+            }
         }
     }
 

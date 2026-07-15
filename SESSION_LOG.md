@@ -1,5 +1,84 @@
 # Session Log
 
+## 2026-07-15 — Session 6
+
+### Accomplished this session
+
+- **Scheduled Backup gating reversal (Phase 12 follow-up):** reversed the launch-day ungated decision —
+  `ScheduledBackupManager.performBackupIfDue` now fetches `Entitlements` from the passed-in `ModelContext`
+  and bails before touching `UserDefaults`/Keychain/the bookmark if `is_lifetime_unlocked` is false, and
+  `SettingsView.scheduledBackupSection` became `@ViewBuilder`, showing a compact locked-state paywall row
+  in place of the toggle/folder/frequency/passphrase controls when locked. Manual "Encrypted Backup"/CSV
+  export/import stay completely free either way — only the automation layer is gated, same "convenience
+  on top of always-free data access" reasoning as Insights. Verified via `xcodebuild build`/`test` (both
+  platforms, full suite green).
+- **Added the Learn Hub** (Phase 13, not originally in the monetization plan): a free/ungated educational
+  section for horology beginners, added from user research + three explicit shape decisions (static Swift
+  data, not JSON/remote; broad overview across many categories, not narrow-deep; cross-links back into the
+  user's own Vault).
+  - An Explore-agent survey preceded planning: confirmed the app is sidebar/`NavigationSplitView`-driven
+    (not `TabView`), found `Watch.complications`'s only canonical vocabulary lived in a private array
+    inside `AddWatchView.swift`, and identified `OfficialServiceDirectory.swift` as the established
+    pattern for bundled static reference data.
+  - Extracted `commonComplications` out of `AddWatchView.swift` into `Watch.swift` as
+    `static let commonComplications`, shared by both `AddWatchView`'s picker and the new cross-link.
+  - Added `LearnHubContent.swift` (`LearnCategory` — 8 cases; `LearnTopic` — slug/category/title/summary/
+    body/optional `complicationName`/optional `systemImage`; `LearnHubContent.topics` — 50 static
+    articles) and `LearnHubView.swift` (category-grouped searchable list → detail view showing an
+    "In Your Vault" cross-link section via `@Query` when a complication topic matches watches the user
+    owns, navigating into `WatchDetailView`).
+  - Wired a new `.learnHub` case into `ContentView.Section` (icon `book.closed`, right after Vault).
+  - Added `LearnHubContentTests.swift`: slug uniqueness, and `complicationName` round-trips exactly
+    against `Watch.commonComplications` in both directions.
+  - Verified via `xcodebuild build`/`test` on macOS — all green.
+  - **UI design pass:** the user explicitly invoked the `ui-designer` subagent, which reviewed the shipped
+    files, built a throwaway type-checked (not visually rendered) SwiftUI prototype at a scratchpad path
+    without touching production files, and proposed a prioritized list. Implemented the top 3: (1) a
+    distinct SF Symbol per topic instead of one icon per whole category (`systemImage`/
+    `displaySystemImage` on `LearnTopic`); (2) a typography overhaul on the detail screen (`.largeTitle`
+    title, tinted `CategoryChip`, `.lineSpacing(4)`, `.frame(maxWidth: 700)` capped reading width — body
+    text was stretching edge-to-edge unreadably on macOS/iPad); (3) `InYourVaultCard` — a tinted bordered
+    card with a star icon, ownership count, and real 44pt `WatchThumbnail` photo rows — replacing the
+    plain-text cross-link footnote. Also added a small bonus: `ContentUnavailableView.search(text:)` empty
+    state for Learn Hub search, matching the existing pattern elsewhere in the app.
+  - Hit and fixed one real bug: making `WatchCardView.swift`'s private `platformImage(from:)` non-private
+    (to reuse it for `WatchThumbnail`) collided with an unrelated identically-named private function
+    already in `AddWatchView.swift` (Swift redeclaration error once exposed module-wide). Reverted
+    `WatchCardView.swift` back to `private`; wrote a small self-contained image-decode property directly
+    inside `LearnHubView.swift` instead.
+  - Re-verified via `xcodebuild build`/`test` — full suite green, including `LearnHubContentTests`.
+  - **Bug found by the user post-ship, fixed same day:** the Titanium topic (Materials & Case) had no
+    visible icon — it was assigned the SF Symbol name `"feather"`, which doesn't actually exist.
+    `Image(systemName:)` fails silently at runtime for an invalid name, so this wasn't caught by
+    `xcodebuild build` (a clean build says nothing about whether a systemName string resolves to a real
+    symbol). Diagnosed with a standalone Swift script calling
+    `NSImage(systemSymbolName:accessibilityDescription:)` for every `systemImage` string used across
+    `LearnHubContent.swift` and checking which returned `nil` — confirmed `feather` was the only invalid
+    one out of all 50. Fixed by switching Titanium to `"scalemass"` (fits the article — titanium being
+    lighter than steel). Rebuilt successfully.
+- Updated `CLAUDE.md` and `horology_vault_monetization_plan.md`: added the Learn Hub feature (new
+  Architecture bullet, Section 6 Phase 13 entry, Section 5.1/5.2 updates), documented the Scheduled Backup
+  gating reversal already reflected in the working tree, and fixed a stray future date typo
+  ("2026-07-16" → "2026-07-15", the actual date this work was done) that had crept into both docs.
+
+### Pending / next steps
+
+- Learn Hub has not been manually eyeballed in Xcode's Canvas/Simulator from inside any session (no Screen
+  Recording/Apple Events permission in this sandbox, same limitation as Phases 10–12) — the user should do
+  a final visual pass in Xcode.
+- Remaining `ui-designer` brainstorm ideas not built: a category-grid landing screen (replacing the flat
+  list), tappable related-topic footer links (articles already cross-reference each other in prose but
+  aren't linked yet), a Watch Anatomy interactive diagram, a movements comparison table, and
+  `@AppStorage`-backed read/progress tracking.
+- Scheduled Backup's locked-state UI (the compact paywall row) also hasn't been manually eyeballed yet —
+  same outstanding gap noted when Phase 12 first shipped.
+- `horology_vault_monetization_plan.md` Section 5.1's "Built so far" list still predates Phases 10–13 in
+  its bullet-by-bullet detail (only patched with pointer notes this session) — a full rewrite of that
+  section is worth doing next time significant V1 work resumes, though Section 6's Phase entries are
+  currently the up-to-date source of truth.
+- V2 (subscription tier) remains the only scope left in the monetization plan, explicitly gated on V1
+  getting real user traction — not to be started unprompted.
+
 ## 2026-07-14 — Session 5
 
 ### Accomplished this session

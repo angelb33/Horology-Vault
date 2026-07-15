@@ -36,6 +36,11 @@
 > manual verification (folder picked, passphrase set, a `.hvbackup` file actually appearing unattended)
 > still needs a pass by the user in Xcode, same sandbox-interaction limitation as every other UI-dependent
 > feature this session.
+>
+> **Revision note (2026-07-15):** Phase 12's Scheduled Backup is now gated behind `is_lifetime_unlocked`,
+> reversing the day-one ungated decision — the manual "Encrypted Backup"/CSV buttons stay free either way,
+> so this doesn't reopen Section 9's "never gate data export" rule, it just gates the automation layer on
+> top. See Section 8's gating decision writeup and Phase 12's follow-up entry for the details.
 
 ## 1. Feature-to-Tier Table
 
@@ -170,7 +175,7 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   then Wishlist price alerts, then Cloud Sync, then Community, then Insurance PDF export.
 - Existing V1 customers see this as a new optional upsell in an app update — no migration, no breaking changes to their local data.
 
-## 5. Implementation Status (as of 2026-07-13)
+## 5. Implementation Status (as of 2026-07-15)
 
 ### 5.1 Built so far
 
@@ -227,16 +232,23 @@ Add `sync_id` and `updated_at` columns to `Watches`, `Straps`, `ServiceHistory`,
   `CustomServiceCenter` entries, browsable/searchable in independently collapsible sections of the
   `ServiceCentersView` sidebar screen.
 - **Entitlements + StoreKit 2:** `Entitlements` `@Model` and `PurchaseManager` (StoreKit 2, one
-  non-consumable lifetime-unlock product) gate new-watch creation behind `is_lifetime_unlocked`, with a
-  seeded one-watch demo state and a persistent unlock banner rather than a hard paywall — see the Phase 8
-  writeup below for the two manual (non-code) steps still needed before shipping.
+  non-consumable lifetime-unlock product) gate the Insights dashboard and (as of 2026-07-15) Scheduled
+  Backup behind `is_lifetime_unlocked` — new-watch creation and manual export/backup stay free regardless;
+  see the Phase 8 writeup below for the two manual (non-code) steps still needed before shipping, and
+  Section 8's gating writeup for the full gated/ungated split. (Note: several bullets in this 5.1 list —
+  Appearance/Phase 10, Insights/Phase 11, Scheduled Backup/Phase 12 — postdate this list's last full
+  rewrite on 2026-07-13; see Section 6's Phase entries below for the authoritative, up-to-date detail on
+  each.)
+- **Learn Hub** (2026-07-15, Phase 13, not originally in this plan): a free/ungated educational section —
+  see Section 6's Phase 13 entry for the full writeup.
 
 ### 5.2 Gaps against this plan's V1 scope
 
-Phases 1–11 of Section 6 — the entire ordered V1 plan, including the two features added 2026-07-14
-(**Phase 10**, Appearance, and **Phase 11**, the Insights dashboard) — are complete. Nothing remains against
-this plan's V1 scope; the only work left in this document is V2 (Section 4's subscription rollout, Section
-10's reordering of it) once V1 has real user traction.
+Phases 1–13 of Section 6 — the entire ordered V1 plan plus the two features added 2026-07-14 (**Phase 10**,
+Appearance, and **Phase 11**, the Insights dashboard), **Phase 12** (Scheduled Backup, 2026-07-15), and
+**Phase 13** (Learn Hub, 2026-07-15, outside this plan's original scope) — are complete. Nothing remains
+against this plan's V1 scope; the only work left in this document is V2 (Section 4's subscription rollout,
+Section 10's reordering of it) once V1 has real user traction.
 
 ## 6. Next Implementation Steps (Ordered Plan)
 
@@ -571,8 +583,9 @@ over the simpler-but-partial CSV path.
   `ScheduledBackupManager.performBackupIfDue(context:)` directly on every launch, in addition to registering
   the periodic schedulers — otherwise "automatic" could silently mean weeks with no backup on iOS if the
   app isn't used regularly. Confirmed with the user as a deliberate choice, not an oversight.
-- **Free/ungated**, consistent with Section 9's existing decision that data export/backup should never be
-  gated — this is the same feature, just automated. Confirmed with the user rather than assumed.
+- **Free/ungated at launch**, consistent with Section 9's existing decision that data export/backup should
+  never be gated — this is the same feature, just automated. Confirmed with the user rather than assumed.
+  **Reversed 2026-07-15** — see the follow-up entry below and Section 8's gating decision writeup.
 - `Horology_Vault_App.swift` gained an explicit `init()` (there was none before) calling
   `ScheduledBackupManager.registerBackgroundTask(container:)` under `#if os(iOS)` — `BGTaskScheduler`
   registration is documented by Apple to silently fail if it happens any later than this (e.g. from a
@@ -615,6 +628,97 @@ over the simpler-but-partial CSV path.
   confirm a `.hvbackup` file actually appears with no further interaction) — this sandbox can't drive that
   live interaction, same limitation noted for every UI-dependent feature this session; needs a pass by the
   user in Xcode.
+- **Follow-up revision (2026-07-15): gated behind `is_lifetime_unlocked`.** Reverses the launch-day ungated
+  decision above — see Section 8's gating decision writeup for why this doesn't reopen the "never gate data
+  export/backup" rule (manual export/backup stays free regardless; this only gates the automation layer).
+  `SettingsView.scheduledBackupSection` became `@ViewBuilder`, branching on the same `isUnlocked` computed
+  property `purchaseStatusSection` already reads: unlocked shows the existing toggle/folder/frequency/
+  passphrase controls unchanged, locked shows a compact in-section paywall row (lock icon, description,
+  "Unlock Full Version — \(price)" button) rather than `DashboardView`'s full-screen `ContentUnavailableView`
+  treatment, since this is one Section within a multi-section Settings `Form`, not a standalone screen.
+  `ScheduledBackupManager.performBackupIfDue` also gained its own entitlement check — fetches
+  `Entitlements` directly from the passed-in `ModelContext` (`(try? context.fetch(FetchDescriptor<Entitlements>()))?.first?.isLifetimeUnlocked`,
+  since a static enum has no `@Query`) and bails before touching `UserDefaults`/Keychain/the bookmark if
+  locked — so a background run can't slip through for a user whose entitlement lapses after they'd already
+  configured and enabled the feature. Verified via `xcodebuild build` (both platforms) and `xcodebuild test`
+  (full suite still green); the locked-state UI itself hasn't been manually eyeballed yet, same outstanding
+  verification gap as the rest of this phase.
+
+### Phase 13 — Learn Hub (horology education content) ✅ Done (2026-07-15)
+Not originally scoped in this plan — added from user research into what would help horology beginners
+(complications, watch anatomy, materials, maintenance, etc.), with the implementation shape settled via
+three explicit decisions before writing code: **static Swift data** (not JSON/remote-fetched) since the
+content is small and bundled-with-the-app is simpler than a fetch/cache layer; **broad overview across many
+categories** rather than narrow-deep on a handful, since a beginner audience benefits more from coverage
+than depth; and **cross-linking back into the user's own Vault** (e.g. tapping "Chronograph" shows the
+user's own watches with that complication) so the educational content ties into the collection they're
+already building, rather than sitting in an isolated silo.
+
+- An Explore-agent codebase survey preceded planning and shaped it: the app is sidebar/`NavigationSplitView`-
+  driven, not `TabView`; `Watch.complications` is a free-form `[String]` with its only canonical vocabulary
+  living in a private array inside `AddWatchView.swift`; `OfficialServiceDirectory.swift` was the
+  established precedent for bundled static reference data (plain `Identifiable` struct + `static let [...]`
+  literal, not a `@Model`).
+- **Free/ungated.** Unlike every other phase in this section, this isn't a monetization decision at all —
+  Learn Hub is onboarding/retention content, not something that belongs behind `is_lifetime_unlocked`.
+- Extracted `commonComplications` out of `AddWatchView.swift` into `Watch.swift` as
+  `static let commonComplications`, updating `AddWatchView.swift` to reference it — so the Add Watch
+  complications picker and Learn Hub's cross-link share one source of truth instead of two lists that
+  could silently drift apart.
+- Added `Horology Vault/LearnHubContent.swift`: `LearnCategory` (8 cases: Watch Anatomy, Movements,
+  Complications, Materials & Case, Straps & Bracelets, Care & Maintenance, Buying & Ownership, Glossary),
+  `LearnTopic` (slug/category/title/summary/body/optional `complicationName` for the Vault cross-link/
+  optional `systemImage`), and `LearnHubContent.topics` — 50 hand-written static articles.
+- Added `Horology Vault/LearnHubView.swift`: a category-grouped, `.searchable` list pushing into a detail
+  view; the detail view shows an `InYourVaultCard` (via `@Query`) when the topic's `complicationName`
+  matches watches the user actually owns, navigating into the existing `WatchDetailView`.
+- Wired a new `.learnHub` case into `ContentView.Section` (icon `book.closed`), placed right after Vault.
+- Added `Horology VaultTests/LearnHubContentTests.swift`: asserts `LearnTopic.slug` uniqueness and that
+  `complicationName` values round-trip exactly against `Watch.commonComplications` in both directions —
+  guards the cross-link from silently breaking if either list drifts.
+- Verified via `xcodebuild build`/`xcodebuild test` on macOS (project uses Xcode's synchronized
+  file-system groups, so new files needed no manual `.pbxproj` editing).
+- **UI design pass:** the user explicitly invoked the `ui-designer` subagent to review the shipped UI and
+  brainstorm improvements. It built a throwaway, type-checked-only SwiftUI prototype at a scratchpad path
+  (no visual Canvas/Simulator capture available in this sandbox) without touching production files, and
+  proposed a prioritized list. The top 3 were implemented same-session:
+  1. **Per-topic SF Symbols** instead of one icon reused per whole category — added `systemImage: String?`
+     to `LearnTopic` plus a `displaySystemImage` fallback to the category icon, hand-assigned across all
+     50 topics.
+  2. **Typography overhaul** on the detail screen — `.largeTitle` title, `.title3` deck-style summary, a
+     tinted `CategoryChip` capsule, `.lineSpacing(4)` body text, `.frame(maxWidth: 700)` centered, since
+     paragraphs were stretching edge-to-edge unreadably on macOS/iPad.
+  3. **`InYourVaultCard`** replacing the plain-text cross-link footnote — a tinted, bordered card with a
+     star icon, ownership count, and rows with a real 44pt `WatchThumbnail` photo (a small local
+     `UIImage`/`NSImage` decode written directly in `LearnHubView.swift` — deliberately not reusing
+     `WatchCardView`'s Vision-based smart-crop pipeline, which is overkill for a tiny list thumbnail) plus
+     a chevron.
+  Also added as a small bonus polish item: `ContentUnavailableView.search(text:)` empty state when Learn
+  Hub search finds nothing, matching the pattern already used in `VaultGridView`/`DashboardView`/
+  `MaintenanceView`.
+  - One real bug surfaced along the way: making `WatchCardView.swift`'s private `platformImage(from:)`
+    non-private (to reuse it for `WatchThumbnail`) collided with an unrelated identically-named private
+    function already in `AddWatchView.swift` — a Swift redeclaration error, since making one internal
+    exposed it module-wide. Reverted `WatchCardView.swift` back to `private` and wrote a small
+    self-contained image-decode computed property directly inside `LearnHubView.swift` instead.
+  - Verified again via `xcodebuild build`/`xcodebuild test` — full suite green, including
+    `LearnHubContentTests`.
+- **Bug found post-ship, fixed same day:** the user reported the Titanium topic (Materials & Case) showed
+  no visible icon. Root cause: it was assigned the SF Symbol name `"feather"`, which does not actually
+  exist — `Image(systemName:)` fails silently at runtime for an unrecognized name, so a clean
+  `xcodebuild build` says nothing about whether a systemName string resolves to a real symbol. Diagnosed
+  with a standalone Swift script calling `NSImage(systemSymbolName:accessibilityDescription:)` for every
+  `systemImage` string in `LearnHubContent.swift` and checking which returned `nil` — confirmed `feather`
+  was the only invalid one across all 50 topics. Fixed by switching Titanium to `"scalemass"` (fits the
+  article's content — titanium being lighter than steel). **Takeaway for future SF Symbol use anywhere in
+  this project: verify a symbol name resolves before trusting it — a successful build is not proof the
+  icon exists.**
+- Not yet manually verified by eye in Xcode's Canvas/Simulator from inside any session (same sandbox
+  limitation — no Screen Recording/Apple Events permission — documented for Phases 10–12); the user should
+  do a final visual pass in Xcode. Remaining `ui-designer` brainstorm ideas not built: a category-grid
+  landing screen (replacing the flat list), tappable related-topic footer links (articles already
+  cross-reference each other in prose but aren't linked yet), a Watch Anatomy interactive diagram, a
+  movements comparison table, and `@AppStorage`-backed read/progress tracking.
 
 ## 7. SwiftUI View Hierarchy (V1)
 
@@ -710,6 +814,18 @@ should always explain itself rather than fail quietly. Maintenance reminders and
 storage were considered as additional candidates for gating (both are "matters more to invested collectors
 than first-time browsers" features, same reasoning as Insights) but were left open for now — see Section 9.
 
+**(Added 2026-07-15)** **Scheduled Backup** (Section 6 Phase 12) joined Insights as gated behind
+`is_lifetime_unlocked`, reversing Phase 12's original ungated launch decision. This doesn't reopen the
+"never gate data export/backup" rule above — the manual "Encrypted Backup" and CSV export/import buttons in
+the Data section stay completely free either way, so a locked user's own data is never inaccessible.
+Scheduled Backup is purely the hands-off automation layered on top of that always-available manual path,
+same "convenience feature, not access to your own data" category as Insights. `SettingsView`'s "Scheduled
+Backup" section shows a locked-state row (lock icon, description, "Unlock Full Version — \(price)" button)
+in place of the toggle/folder/frequency/passphrase controls when locked; `ScheduledBackupManager.performBackupIfDue`
+also checks `Entitlements.isLifetimeUnlocked` directly (fetched from the passed-in `ModelContext`, since a
+static enum has no `@Query`) before doing anything, not just the UI — so a background run can't slip
+through for a user whose entitlement lapses (e.g. a refund) after they'd already configured and enabled it.
+
 **Tie-back to the Entitlements table:** this is exactly the same table designed in Section 2.2 — `PurchaseManager` is simply the iOS/macOS-specific code that keeps `is_lifetime_unlocked` accurate. When V2 adds the subscription, the same class gains a second product and starts also writing `subscription_status`, with no changes needed to how the UI reads that table.
 
 ## 9. Open Decisions
@@ -766,12 +882,14 @@ than first-time browsers" features, same reasoning as Insights) but were left op
     hand-saved exports.
   Rough sizing: more than a quick add, but not a big rewrite either — closer to a half-day feature once
   properly scoped. Not queued as a numbered phase; revisit if a user actually asks for bulk-editable export.
-- **(Added 2026-07-15, from Phase 12)** Confirmed choices for Scheduled Backup, recorded so future sessions
-  don't re-litigate them: ungated/free (same reasoning as the existing manual export/backup exclusion);
-  launch-time catch-up runs in addition to the periodic OS schedulers (iOS's `BGTaskScheduler` is
-  opportunistic enough that periodic-only could mean silent multi-week gaps); Weekly default frequency;
-  the Keychain-stored passphrase survives disabling the toggle (an explicit "Remove Stored Passphrase"
-  action exists for anyone who wants it gone specifically, rather than deleting automatically on disable).
+- **(Added 2026-07-15, from Phase 12; gating choice reversed same day, see Section 8)** Confirmed choices
+  for Scheduled Backup, recorded so future sessions don't re-litigate them: gated behind `is_lifetime_unlocked`
+  (reversed from the original ungated launch decision — manual export/backup stays free regardless, this
+  is just the automation layer); launch-time catch-up runs in addition to the periodic OS schedulers (iOS's
+  `BGTaskScheduler` is opportunistic enough that periodic-only could mean silent multi-week gaps); Weekly
+  default frequency; the Keychain-stored passphrase survives disabling the toggle (an explicit "Remove
+  Stored Passphrase" action exists for anyone who wants it gone specifically, rather than deleting
+  automatically on disable).
 - **(Added 2026-07-15, from Phase 12)** Whether the `NSBackgroundActivityScheduler`'s hourly check interval
   is fine as a fixed constant or should scale with the chosen frequency (e.g. a Monthly-only user doesn't
   need an hourly wake-up) — left as a flat hourly poll for now since `performBackupIfDue`'s own due-check is

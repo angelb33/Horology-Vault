@@ -109,8 +109,15 @@ enum ScheduledBackupManager {
     /// a fully successful run (export succeeded and the file was written) — a missing passphrase,
     /// unresolvable bookmark, or write failure leaves the due-check retriable next time rather
     /// than marking a failed cycle as done.
+    ///
+    /// Gated behind `Entitlements.isLifetimeUnlocked` — checked here too, not just in
+    /// `SettingsView`'s UI, so a background run can't slip through for a user whose entitlement
+    /// lapsed (e.g. a refund) after they'd already enabled the toggle.
     @discardableResult
     static func performBackupIfDue(context: ModelContext, now: Date = Date()) -> Bool {
+        let isUnlocked = (try? context.fetch(FetchDescriptor<Entitlements>()))?.first?.isLifetimeUnlocked ?? false
+        guard isUnlocked else { return false }
+
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: enabledKey) else { return false }
 

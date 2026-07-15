@@ -46,11 +46,18 @@ Both build cleanly, the full test suite passes (37/37), and the UI itself was ma
 the user directly in Xcode (the sandbox this work was implemented in has no Screen Recording/Apple Events
 permission, so that verification step couldn't happen from inside the session). A twelfth phase was added
 and shipped 2026-07-15: **Phase 12** (Scheduled Automatic Encrypted Backup — `KeychainHelper.swift` and
-`ScheduledBackupManager.swift`, see Architecture below). Build succeeds on both platforms and the full test
+`ScheduledBackupManager.swift`, see Architecture below). As of 2026-07-15 this is gated behind
+`is_lifetime_unlocked`, same as Insights (the manual encrypted backup/CSV buttons stay free regardless —
+only the automation layer is gated). Build succeeds on both platforms and the full test
 suite passes (10 new cases); end-to-end manual verification (folder picked, passphrase set, a `.hvbackup`
 file actually appearing unattended) is still outstanding, same sandbox-interaction limitation as Phases
 10–11. Nothing else remains against
-this plan's V1 scope. Treat that doc as the
+this plan's V1 scope. A feature outside the monetization plan's original scope, **Learn Hub**, was added
+2026-07-15: a free/ungated educational section (`LearnHubContent.swift`, `LearnHubView.swift`) covering
+watch anatomy, movements, complications, materials, straps, care, buying, and a glossary — 50 static
+articles across 8 categories, each with its own SF Symbol, and complication topics cross-link into the
+user's own Vault via a shared `Watch.commonComplications` vocabulary (see Architecture below for the
+full design and a hard-won SF Symbol lesson). Treat that doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
 review of other watch-collection apps (WatchGrid, Klokker, Watch Collector, etc.) — read it for which
@@ -144,6 +151,46 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   in create mode), `SettingsView` (wrist profile
   editing, a working Data section — CSV export/import + encrypted backup/restore, see `DataBackupManager`
   below — and a working Purchase section wired to `PurchaseManager`/`Entitlements`, see below).
+- **Learn Hub** (added 2026-07-15, `.learnHub` case in `ContentView.Section`, `book.closed` icon, placed
+  right after Vault in the sidebar): a free/ungated educational section for horology beginners, not gated
+  by `Entitlements` since it's onboarding/retention content rather than a paid feature.
+  `LearnHubContent.swift` holds `LearnCategory` (8 cases — Watch Anatomy, Movements, Complications,
+  Materials & Case, Straps & Bracelets, Care & Maintenance, Buying & Ownership, Glossary) and `LearnTopic`
+  (slug/category/title/summary/body/optional `complicationName`/optional `systemImage`) plus
+  `LearnHubContent.topics`, 50 hand-written static articles — following the same bundled-static-data
+  pattern as `OfficialServiceDirectory.swift` (a plain Swift literal, not a `@Model`), which is this
+  project's precedent for read-only reference content that doesn't belong in the SwiftData schema. Every
+  topic has its own SF Symbol (`LearnTopic.displaySystemImage`, falling back to the category's icon when a
+  topic doesn't set one) rather than reusing one icon per whole category — **lesson learned the hard way:
+  `Image(systemName:)` does not validate at compile time, so a typo'd or non-existent symbol name (this
+  project shipped `"feather"`, which isn't a real SF Symbol) builds and tests clean but renders blank at
+  runtime.** Before trusting a new SF Symbol name, verify it resolves — e.g. a throwaway script calling
+  `NSImage(systemSymbolName:accessibilityDescription:)`/`UIImage(systemName:)` for every candidate string
+  and checking for `nil` — rather than assuming a green `xcodebuild build` means the icon exists.
+  `LearnHubView.swift` is a category-grouped, `.searchable` list (`ContentUnavailableView.search(text:)`
+  empty state, matching `VaultGridView`/`DashboardView`/`MaintenanceView`'s existing pattern) pushing into
+  a detail view: `.largeTitle` title, a tinted `CategoryChip` capsule, `.lineSpacing(4)` body text capped
+  at `.frame(maxWidth: 700)` so paragraphs don't stretch edge-to-edge unreadably on macOS/iPad. Complication
+  topics show an `InYourVaultCard` — a tinted, bordered card (star icon, ownership count, `WatchThumbnail`
+  44pt photo rows navigating into `WatchDetailView`) — driven by an `@Query` match against the topic's
+  `complicationName`. That cross-link depends on `LearnTopic.complicationName` staying spelled identically
+  to `Watch`'s complication vocabulary, so `commonComplications` (`"Date"`, `"Day-Date"`, `"Chronograph"`,
+  `"GMT"`, `"Moonphase"`, `"Power Reserve"`, `"World Time"`, `"Perpetual Calendar"`, `"Tourbillon"`,
+  `"Alarm"`) was extracted out of `AddWatchView.swift` (where it used to live as a private array) into
+  `Watch.swift` as `static let commonComplications`, so both features share one source of truth instead of
+  two lists that could silently drift. `WatchThumbnail` is a small, self-contained `UIImage`/`NSImage`
+  decode local to `LearnHubView.swift` — it deliberately does **not** reuse `WatchCardView`'s Vision-based
+  smart-crop pipeline (overkill for a 44pt list thumbnail), and an earlier attempt to reuse
+  `WatchCardView`'s private `platformImage(from:)` by making it internal was reverted after it collided
+  with an unrelated identically-named private function already in `AddWatchView.swift` (a redeclaration
+  error once exposed module-wide) — keep that function `private` in `WatchCardView.swift`. The UI pass
+  (icon-per-topic, typography, `InYourVaultCard`) came from the `ui-designer` subagent's reviewed
+  brainstorm; its lower-priority ideas — a category-grid landing screen, tappable related-topic links
+  between articles (cross-references already exist in the prose but aren't links yet), a Watch Anatomy
+  interactive diagram, a movements comparison table, `@AppStorage`-backed read/progress tracking — are not
+  built. Like the rest of this app's UI work, the visual result hasn't been manually eyeballed in Xcode's
+  Canvas/Simulator from inside a session (no Screen Recording/Apple Events permission in this sandbox); the
+  user should do a final visual pass in Xcode.
   `NotificationManager.swift` (a static-only enum, not a view) schedules/cancels the local "service due"
   reminder per watch — see Persistence below for the due-date math it shares with `Watch.isServiceDue`.
   `PurchaseManager.swift` (an `@Observable` class, not a view either) is injected into the environment from
@@ -154,7 +201,23 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   now gates `DashboardView` (the Insights sidebar entry) instead: `@Query`-read, and when locked the whole
   screen is replaced by a `ContentUnavailableView`-based paywall with an "Unlock Full Version" action, rather
   than disabling a button. Fit Calculator stays open in both states — it's the plan's differentiator feature,
-  so hiding it would prevent it from ever doing its job of converting a browser into a buyer.
+  so hiding it would prevent it from ever doing its job of converting a browser into a buyer. **Scheduled
+  Backup joined Insights as gated, 2026-07-15** (see below) — manual export/backup remains free regardless.
+  `KeychainHelper.swift` (a static-only enum, no view) wraps Keychain Services
+  (`SecItemAdd`/`SecItemCopyMatching`/`SecItemUpdate`/`SecItemDelete`) to store/read/delete the scheduled
+  backup's passphrase — the only Keychain code in this project. `ScheduledBackupManager.swift` (another
+  static-only enum) is the first place this app's scheduling code needs `#if os(...)` branches: iOS
+  registers a `BGProcessingTask` (from `Horology_Vault_App.init()`, since `BGTaskScheduler` registration
+  must happen before the app finishes launching — everything else in this app sets up from a `View.task`,
+  which is too late for this one call), macOS uses `NSBackgroundActivityScheduler` (started from
+  `ContentView.task`, since it only needs to run while the app is alive, no LaunchAgent). Its pure
+  `isBackupDue(frequency:lastRunDate:now:calendar:)` function is the only part of this feature that's unit
+  tested (`ScheduledBackupManagerTests.swift`) — `performBackupIfDue(context:)` is the actual orchestration,
+  reading settings from `UserDefaults.standard` directly (a static enum can't hold `@AppStorage`) and
+  gating on `Entitlements.isLifetimeUnlocked` fetched from the passed-in `ModelContext` before doing
+  anything else. `SettingsView`'s "Scheduled Backup" section is `@ViewBuilder`-branched on the same
+  `isUnlocked` pattern `purchaseStatusSection` already uses, showing a compact in-section paywall row
+  instead of `DashboardView`'s full-screen treatment, since it's one `Section` in a multi-section `Form`.
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,
@@ -204,7 +267,10 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   Match whichever framework the target file already uses. `FitCalculatorTests.swift`, `EntitlementsTests.swift`,
   and `WatchModelTests.swift` cover the Phase 9 priorities (Fit Calculator math, Entitlements/PurchaseManager
   gating, `Watch` service-due/cascade-delete invariants) against in-memory `ModelContainer`s — follow that
-  pattern for new model-layer tests rather than hitting the real on-disk store. `FitCalculator.swift` and
+  pattern for new model-layer tests rather than hitting the real on-disk store. `LearnHubContentTests.swift`
+  guards the Learn Hub cross-link instead of business logic: asserts every `LearnTopic.slug` is unique and
+  that `complicationName` values round-trip exactly against `Watch.commonComplications` in both directions,
+  so the two lists can't silently drift apart. `FitCalculator.swift` and
   `PurchaseManager.updateEntitlementsRecord(unlocked:in:now:)` exist specifically because their logic used to
   be private/inline and untestable from a separate target — when adding new business logic, consider
   whether it needs the same kind of extraction up front rather than retrofitting it later.
