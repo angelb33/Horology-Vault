@@ -29,6 +29,10 @@ final class Watch {
     var purchasePrice: Double?
     var movementType: MovementType?
     var powerReserveHours: Double?
+    var windReminderLeadTimeHours: Double?
+    var serviceIntervalYears: Int?
+    var isServiceDueReminderEnabled: Bool?
+    var isWindReminderEnabled: Bool?
 
     @Attribute(.externalStorage)
     var photoData: Data?
@@ -60,7 +64,8 @@ final class Watch {
         photoData: Data? = nil,
         purchasePrice: Double? = nil,
         movementType: MovementType? = nil,
-        powerReserveHours: Double? = nil
+        powerReserveHours: Double? = nil,
+        windReminderLeadTimeHours: Double? = nil
     ) {
         self.brand = brand
         self.model = model
@@ -74,18 +79,26 @@ final class Watch {
         self.purchasePrice = purchasePrice
         self.movementType = movementType
         self.powerReserveHours = powerReserveHours
+        self.windReminderLeadTimeHours = windReminderLeadTimeHours
     }
 
     var lastServiceDate: Date? {
         serviceRecords.map(\.datePerformed).max()
     }
 
-    /// Mechanical watches are typically serviced every 3-5 years; this is the date that
-    /// crossing marks the watch as due, falling back to the acquisition date for watches
-    /// that have never been serviced. Shared by `isServiceDue` and `NotificationManager`
-    /// so the maintenance list and the reminder notification never disagree.
+    /// Mechanical watches are typically serviced every 3-5 years; the interval is user-configurable
+    /// three ways, checked in order: this watch's own `serviceIntervalYears` override (set on the
+    /// Workbench's Reminders section), then the app-wide Settings default (`UserDefaults`, since
+    /// `Watch` is a SwiftData model and can't hold `@AppStorage` — same direct-read pattern
+    /// `ScheduledBackupManager` already uses), then `NotificationManager.defaultServiceIntervalYears`.
+    /// The resulting date is what crossing marks the watch as due, falling back to the acquisition
+    /// date for watches that have never been serviced. Shared by `isServiceDue` and
+    /// `NotificationManager` so the maintenance list and the reminder notification never disagree.
     var serviceDueDate: Date? {
-        Calendar.current.date(byAdding: .year, value: 3, to: lastServiceDate ?? acquisitionDate)
+        let intervalYears = serviceIntervalYears
+            ?? UserDefaults.standard.object(forKey: NotificationManager.serviceIntervalYearsKey) as? Int
+            ?? NotificationManager.defaultServiceIntervalYears
+        return Calendar.current.date(byAdding: .year, value: intervalYears, to: lastServiceDate ?? acquisitionDate)
     }
 
     var isServiceDue: Bool {
@@ -145,6 +158,14 @@ final class Watch {
     var isPowerReserveDepleted: Bool {
         guard let powerReserveExpiresAt else { return false }
         return powerReserveExpiresAt < Date()
+    }
+
+    /// When the wind reminder notification should fire — `powerReserveExpiresAt` minus the
+    /// user-entered `windReminderLeadTimeHours` lead time. `nil` if either is missing, which
+    /// also covers quartz/unset movements (no `powerReserveExpiresAt`) without a separate check.
+    var windReminderDate: Date? {
+        guard let powerReserveExpiresAt, let windReminderLeadTimeHours else { return nil }
+        return powerReserveExpiresAt.addingTimeInterval(-windReminderLeadTimeHours * 3600)
     }
 
     /// The canonical complication vocabulary — shared by `AddWatchView`'s toggle list and

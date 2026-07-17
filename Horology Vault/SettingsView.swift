@@ -15,9 +15,14 @@ struct SettingsView: View {
     @Environment(PurchaseManager.self) private var purchaseManager
     @Query private var profiles: [UserProfile]
     @Query private var entitlements: [Entitlements]
+    @Query private var watches: [Watch]
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
     @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+
+    @AppStorage(NotificationManager.isServiceDueReminderEnabledKey) private var isServiceDueReminderEnabled = true
+    @AppStorage(NotificationManager.isWindReminderEnabledKey) private var isWindReminderEnabled = true
+    @AppStorage(NotificationManager.serviceIntervalYearsKey) private var serviceIntervalYears = NotificationManager.defaultServiceIntervalYears
 
     @State private var csvExportDocument: CSVDocument?
     @State private var isExportingCSV = false
@@ -45,28 +50,51 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                appearanceSection
-                wristProfileSection
-                dataSection
-                scheduledBackupSection
-                purchaseStatusSection
-                aboutSection
-            }
-            #if os(macOS)
-            // The default macOS Form style left-aligns its sections in a narrow
-            // column instead of centering them like System Settings; .grouped
-            // matches that centered, card-style layout.
-            .formStyle(.grouped)
-            #endif
-            .navigationTitle("Settings")
-            .onAppear(perform: ensureProfileExists)
-            .onAppear { hasStoredBackupPassphrase = KeychainHelper.readPassphrase() != nil }
-            // Each fileExporter/fileImporter gets its own EmptyView anchor rather than being
-            // stacked directly on this NavigationStack — multiple modifiers of the identical
-            // kind attached to one view can collide in SwiftUI (only the last-attached one of
-            // each kind ends up wired for presentation), which is what silently broke CSV
-            // export/import here while the later-attached Backup ones worked.
+            settingsForm
+        }
+    }
+
+    /// `body`'s modifier chain was already long before the Reminders section's `.onChange` was
+    /// added, and that one extra modifier pushed it over the type checker's time limit ("unable
+    /// to type-check this expression in reasonable time"). Splitting it into several `some
+    /// View`-returning pieces — each individually type-checked, rather than one giant nested
+    /// expression — is what actually fixes it; a single extra intermediate property wasn't
+    /// enough on its own, so this goes one step further and breaks out the file-importer
+    /// background handlers and the alerts too.
+    private var settingsForm: some View {
+        withPassphraseAndStatusAlerts(withFileImportExportHandlers(formWithNavigationModifiers))
+    }
+
+    private var formWithNavigationModifiers: some View {
+        Form {
+            appearanceSection
+            wristProfileSection
+            dataSection
+            remindersSection
+            scheduledBackupSection
+            purchaseStatusSection
+            aboutSection
+        }
+        .onChange(of: reminderSettingsSignature) { _, _ in rescheduleAllReminders() }
+        #if os(macOS)
+        // The default macOS Form style left-aligns its sections in a narrow
+        // column instead of centering them like System Settings; .grouped
+        // matches that centered, card-style layout.
+        .formStyle(.grouped)
+        #endif
+        .navigationTitle("Settings")
+        .onAppear(perform: ensureProfileExists)
+        .onAppear { hasStoredBackupPassphrase = KeychainHelper.readPassphrase() != nil }
+    }
+
+    // Each fileExporter/fileImporter gets its own EmptyView anchor rather than being stacked
+    // directly on the Form — multiple modifiers of the identical kind attached to one view can
+    // collide in SwiftUI (only the last-attached one of each kind ends up wired for
+    // presentation), which is what silently broke CSV export/import here while the
+    // later-attached Backup ones worked.
+    @ViewBuilder
+    private func withFileImportExportHandlers(_ content: some View) -> some View {
+        content
             .background {
                 EmptyView()
                     .fileExporter(isPresented: $isExportingCSV, document: csvExportDocument, contentType: .plainText, defaultFilename: "HorologyVaultWatches") { result in
@@ -126,6 +154,11 @@ struct SettingsView: View {
                         }
                     }
             }
+    }
+
+    @ViewBuilder
+    private func withPassphraseAndStatusAlerts(_ content: some View) -> some View {
+        content
             .alert(
                 passphrasePromptTitle,
                 isPresented: Binding(
@@ -147,7 +180,6 @@ struct SettingsView: View {
             } message: {
                 Text(statusMessage ?? "")
             }
-        }
     }
 
     private var passphrasePromptTitle: String {
@@ -195,7 +227,10 @@ struct SettingsView: View {
         case .restoringBackup(let fileData):
             do {
                 let summary = try DataBackupManager.importEncryptedBackup(fileData, passphrase: passphrase, context: modelContext)
-                NotificationManager.rescheduleAll(for: (try? modelContext.fetch(FetchDescriptor<Watch>())) ?? [])
+                NotificationManager.rescheduleAll(
+                    for: (try? modelContext.fetch(FetchDescriptor<Watch>())) ?? [],
+                    isUnlocked: isUnlocked
+                )
                 statusMessage = "Restored \(summary.watchesRestored) watch(es), \(summary.strapsRestored) strap(s), \(summary.wishlistItemsRestored) wishlist item(s)"
                     + (summary.profileRestored ? ", and your wrist profile." : ".")
             } catch {
@@ -301,6 +336,57 @@ struct SettingsView: View {
         } footer: {
             Text("CSV covers your watch list; the encrypted backup captures your entire collection, including straps, service history, wear log, and provenance documents.")
         }
+    }
+
+    // MARK: Reminders
+
+    @ViewBuilder
+    private var remindersSection: some View {
+        if isUnlocked {
+            Section {
+                Toggle("Service Due Reminders", isOn: $isServiceDueReminderEnabled)
+                Picker("Default Service Interval", selection: $serviceIntervalYears) {
+                    ForEach(1...10, id: \.self) { years in
+                        Text("\(years) Year\(years == 1 ? "" : "s")").tag(years)
+                    }
+                }
+                Toggle("Wind Reminders", isOn: $isWindReminderEnabled)
+            } header: {
+                SectionHeader("Reminders")
+            } footer: {
+                Text("These are app-wide master switches — turning one off silences that reminder for every watch, and turning it back on restores each watch's own choice. Each watch also has its own Reminders section (with its own interval override) on its page. Wind Reminders need a movement type, power reserve, and reminder lead time set per watch in Edit Watch.")
+            }
+        } else {
+            Section {
+                Label("Reminders are a Full Version Feature", systemImage: "lock")
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await purchaseManager.purchase() }
+                } label: {
+                    if let product = purchaseManager.product {
+                        Text("Unlock Full Version — \(product.displayPrice)")
+                    } else {
+                        Text("Unlock Full Version")
+                    }
+                }
+                .disabled(purchaseManager.isLoadingProduct)
+            } header: {
+                SectionHeader("Reminders")
+            } footer: {
+                Text("Unlock the full version to get notified when a watch is due for service or needs winding.")
+            }
+        }
+    }
+
+    /// Single combined value to watch instead of three separate `.onChange` modifiers — stacking
+    /// several more `.onChange` calls onto `body`'s already-long modifier chain pushed the type
+    /// checker over its time limit ("unable to type-check this expression in reasonable time").
+    private var reminderSettingsSignature: String {
+        "\(isServiceDueReminderEnabled)-\(isWindReminderEnabled)-\(serviceIntervalYears)"
+    }
+
+    private func rescheduleAllReminders() {
+        NotificationManager.rescheduleAll(for: watches, isUnlocked: isUnlocked)
     }
 
     // MARK: Scheduled Backup

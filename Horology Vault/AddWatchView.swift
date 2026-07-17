@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 struct AddWatchView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var entitlements: [Entitlements]
 
     /// The watch being edited, if any. Nil means this sheet is creating a new watch.
     private let watchToEdit: Watch?
@@ -27,6 +28,7 @@ struct AddWatchView: View {
     @State private var purchasePrice: Double?
     @State private var movementType: MovementType?
     @State private var powerReserveHours: Double?
+    @State private var windReminderLeadTimeHours: Double?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
@@ -50,6 +52,7 @@ struct AddWatchView: View {
         _purchasePrice = State(initialValue: watchToEdit?.purchasePrice)
         _movementType = State(initialValue: watchToEdit?.movementType)
         _powerReserveHours = State(initialValue: watchToEdit?.powerReserveHours)
+        _windReminderLeadTimeHours = State(initialValue: watchToEdit?.windReminderLeadTimeHours)
     }
 
     private var canSave: Bool {
@@ -66,6 +69,21 @@ struct AddWatchView: View {
     private var effectivePowerReserveHours: Double? {
         guard movementType == .manual || movementType == .automatic else { return nil }
         return powerReserveHours
+    }
+
+    /// Same clearing rule as `effectivePowerReserveHours` — a lead time only means something
+    /// alongside a power reserve spec.
+    private var effectiveWindReminderLeadTimeHours: Double? {
+        guard movementType == .manual || movementType == .automatic else { return nil }
+        return windReminderLeadTimeHours
+    }
+
+    /// Service Due and Wind reminders are both gated behind the lifetime unlock (see
+    /// `NotificationManager`'s doc comment) — this only affects whether the app actually
+    /// notifies the user, not whether the reminder fields below can be entered, so a free
+    /// user's data isn't lost if they later unlock.
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
     }
 
     var body: some View {
@@ -155,9 +173,29 @@ struct AddWatchView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                LabeledContent("Wind Reminder") {
+                    HStack(spacing: 4) {
+                        TextField("0", value: $windReminderLeadTimeHours, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .frame(maxWidth: 80)
+                        Text("hours before empty")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         } header: {
             SectionHeader("Movement")
+        } footer: {
+            // Power reserve and the reminder lead time are always free to enter — see
+            // `isUnlocked`'s doc comment — this just clarifies that the notification itself
+            // needs the full version, without blocking data entry. No purchase button here;
+            // that flow already lives in Settings/Insights, this is informational only.
+            if (movementType == .manual || movementType == .automatic) && !isUnlocked {
+                Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
+            }
         }
     }
 
@@ -245,6 +283,7 @@ struct AddWatchView: View {
             watchToEdit.purchasePrice = purchasePrice
             watchToEdit.movementType = movementType
             watchToEdit.powerReserveHours = effectivePowerReserveHours
+            watchToEdit.windReminderLeadTimeHours = effectiveWindReminderLeadTimeHours
             targetWatch = watchToEdit
         } else {
             let watch = Watch(
@@ -258,12 +297,14 @@ struct AddWatchView: View {
                 photoData: photoData,
                 purchasePrice: purchasePrice,
                 movementType: movementType,
-                powerReserveHours: effectivePowerReserveHours
+                powerReserveHours: effectivePowerReserveHours,
+                windReminderLeadTimeHours: effectiveWindReminderLeadTimeHours
             )
             modelContext.insert(watch)
             targetWatch = watch
         }
-        NotificationManager.scheduleServiceDueReminder(for: targetWatch)
+        NotificationManager.scheduleServiceDueReminder(for: targetWatch, isUnlocked: isUnlocked)
+        NotificationManager.scheduleWindReminder(for: targetWatch, isUnlocked: isUnlocked)
         dismiss()
     }
 }
@@ -305,5 +346,5 @@ private func platformImage(from data: Data) -> Image? {
 
 #Preview {
     AddWatchView()
-        .modelContainer(for: Watch.self, inMemory: true)
+        .modelContainer(for: [Watch.self, Entitlements.self], inMemory: true)
 }

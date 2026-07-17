@@ -155,6 +155,114 @@ Winding Log. Wired into `DashboardView` after the Cost per Wear card; inherits t
 automatically, no new gating code, same pattern as Cost per Wear's addition. No new tests were added — the
 chart is pure presentation over `powerReserveExpiresAt`/`isPowerReserveDepleted`, which the Phase 14 test
 batch already covers. Both platforms build clean.
+Later the same day, a deliberate monetization-strategy shift shipped: **both local reminder notifications
+(Service Due and a new Wind Reminder) are now gated behind the lifetime unlock**, reversing Service Due's
+previous free status. Decided in conversation with the user, reasoning: with the app still pre-launch (no
+installed base to break trust with), a push notification is a far more universal conversion trigger than
+Insights/Scheduled Backup, since it reaches every user at the moment their watch actually needs attention,
+not just the subset who care about analytics or backups — while the free tier keeps every core action (add
+watches, log service/wear/wind, and the in-app status badges/text that already surface the same "due" or
+"depleted" signal for free) so it never feels crippled. `Watch` gained one more plain additive optional,
+`windReminderLeadTimeHours` (a user-entered "remind me N hours before the power reserve runs out"), and a
+computed `windReminderDate` (`powerReserveExpiresAt` minus that lead time, `nil` if either input is
+missing — 3 new tests in `WatchModelTests.swift`). `NotificationManager` was restructured to take gating as
+an explicit `isUnlocked: Bool` parameter on every schedule call rather than querying SwiftData itself
+(matching how `ScheduledBackupManager` already takes its gating input from the caller) — `cancelServiceDueReminder`/
+new `cancelWindReminder` stay ungated since cancelling is never something to gate. `scheduleWindReminder`
+mirrors `scheduleServiceDueReminder`'s structure but with hour/minute trigger granularity (Service Due only
+needed year/month/day) since a wind reminder's lead time is hours, not years. Every existing call site
+(`ContentView`, `AddWatchView`, `WatchDetailView`'s delete/Wind Watch/Log Today actions, its nested
+`AddServiceRecordView`, `VaultGridView`'s own quick-action equivalents of Wind Watch/Log Today, and
+`SettingsView`'s encrypted-backup-restore path) now reads its own `Entitlements`
+`@Query` and passes `isUnlocked` through — see the Architecture section's Persistence/Notifications bullets
+for the full call-site list. `ContentView` also gained `.onChange(of: isUnlocked, initial: true)` calling
+`NotificationManager.rescheduleAll`, replacing the old one-shot `.task` call, so a mid-session purchase
+activates both reminders immediately rather than requiring a relaunch. `AddWatchView`'s Movement section
+gained a "Wind Reminder" hours field next to Power Reserve (same manual/automatic-only visibility,
+same `effectiveWindReminderLeadTimeHours` clear-on-movement-switch pattern as `effectivePowerReserveHours`)
+— deliberately left editable and unlocked-data-safe regardless of entitlement status (only the *notification
+firing* is gated, not data entry, so a free user's input isn't lost if they later unlock), with a locked-state
+footer note (plain text, not an actionable purchase button — that flow already lives in Settings/Insights)
+pointing them at Settings to unlock. `WatchDetailView`'s "Wind Watch" button and "Log Today" (wear) button —
+and `VaultGridView`'s own duplicate quick-action versions of both, reached from a watch card's context
+menu — all now reschedule the wind reminder after logging, since either action can push
+`powerReserveExpiresAt` (and therefore `windReminderDate`) forward — wearing an automatic recharges its
+mainspring too, per `Watch.lastPoweredDate`; this reschedule is a harmless no-op for manual/quartz watches
+on the wear path. Both platforms build clean and the full unit test suite passes.
+A same-day follow-up made the reminders discoverable and configurable, prompted by the user pointing out the
+Service Due reminder was invisible (no UI at all) and its interval wasn't adjustable. **`SettingsView` gained
+a new "Reminders" section** (placed between Data and Scheduled Backup, same locked/unlocked
+`@ViewBuilder`-branched pattern as `scheduledBackupSection`) with a "Service Due Reminders" toggle, a
+"Service Interval" picker (1–10 years), and a "Wind Reminders" toggle — the first dedicated, easy-to-find
+home for reminder settings; previously the only surfacing was a footer note buried in `AddWatchView`'s
+Movement section (which still exists, unchanged, for in-context awareness at the point of entering a wind
+lead time). The Service Due interval, previously hardcoded to 3 years directly in `Watch.serviceDueDate`,
+is now a `UserDefaults`-backed setting (key `NotificationManager.serviceIntervalYearsKey`,
+**default changed to 5 years** per the user's explicit request) — `Watch.serviceDueDate` reads it directly
+from `UserDefaults.standard` rather than taking it as a parameter, since `Watch` is a SwiftData model and
+can't hold `@AppStorage`; this is the same UserDefaults-direct-read pattern `ScheduledBackupManager`
+established for its own settings, now extended to a model computed property for the first time. The two new
+enable/disable toggles are read the same way, gating inside `NotificationManager.scheduleServiceDueReminder`/
+`scheduleWindReminder` (`UserDefaults.standard.object(forKey: ...) as? Bool ?? true` — on by default,
+consistent with the reminders already existing before this toggle was added). All three new keys —
+`isServiceDueReminderEnabledKey`, `isWindReminderEnabledKey`, `serviceIntervalYearsKey`, plus
+`defaultServiceIntervalYears = 5` — live as `static let`s on `NotificationManager`, mirroring exactly how
+`ScheduledBackupManager` centralizes its own UserDefaults keys. `SettingsView` reschedules every watch's
+reminders whenever any of the three settings change, via a single combined `reminderSettingsSignature`
+string `.onChange` rather than three separate `.onChange` modifiers — stacking three more modifiers onto
+`SettingsView.body`'s already-long chain hit Swift's "unable to type-check this expression in reasonable
+time" error, which combining into one `.onChange` didn't fully fix either; the actual fix was splitting
+`body`'s modifier chain into three separate `some View`-returning pieces (`formWithNavigationModifiers`,
+`withFileImportExportHandlers(_:)`, `withPassphraseAndStatusAlerts(_:)`, the latter two `@ViewBuilder`
+functions taking the accumulated content as a parameter) so the type checker solves each independently
+instead of one combinatorially large nested expression — worth remembering as the general fix if this error
+recurs elsewhere in this file. `WatchModelTests.swift`'s existing service-due tests were updated from
+hardcoded "3 years" expectations to 5, and a new test (`serviceDueDateUsesConfiguredInterval`) verifies the
+UserDefaults override actually works, bracketing the key with save/restore via `defer` so it can't leak
+state into other tests (no test in this project had touched `UserDefaults` before this). Both platforms
+build clean and the full unit test suite passes.
+Immediately after, per explicit user feedback that a single global interval wasn't enough, **reminders
+gained per-watch overrides on top of the Settings master switches**, same day. `Watch` gained three more
+plain additive optionals: `serviceIntervalYears: Int?`, `isServiceDueReminderEnabled: Bool?`, and
+`isWindReminderEnabled: Bool?` — deliberately not added as `init(...)` parameters like
+`windReminderLeadTimeHours` was, since they're only ever set later via direct `@Bindable` mutation from
+`WatchDetailView`'s new Reminders section, never at watch-creation time. `Watch.serviceDueDate` now checks
+three layers in order: the watch's own `serviceIntervalYears`, then the Settings-level `UserDefaults`
+default, then `NotificationManager.defaultServiceIntervalYears` — one new test
+(`serviceDueDateUsesPerWatchOverrideOverGlobalDefault`) confirms the per-watch value wins.
+**`NotificationManager.scheduleServiceDueReminder`/`scheduleWindReminder` gained a third guard each**,
+checking `watch.isServiceDueReminderEnabled ?? true` / `watch.isWindReminderEnabled ?? true` after the
+existing `isUnlocked` and app-wide-master-switch guards — this is a strict AND, not a fallback, matching
+the user's explicit spec: "if [the global switch is] disabled then all other individual reminders will be
+disabled, if it is enabled again the individual settings will be respected." **`WatchDetailView` gained a
+new Reminders section**, placed immediately after Overview (first thing visible on the Workbench, per the
+user's ask to make reminders "easy to identify" rather than the previous AddWatchView-footer-only
+surfacing) — a "Service Due Reminder" toggle, a "Service Interval" picker (1–10 years, same range as
+Settings'), and a "Wind Reminder" toggle (shown only for manual/automatic watches, mirroring the existing
+Power Reserve field's visibility rule). Each control is backed by a computed `Binding<Bool>`/`Binding<Int>`
+whose `set` both writes the optional model property and immediately calls
+`NotificationManager.scheduleServiceDueReminder`/`scheduleWindReminder` for that one watch — deliberately
+not `.onChange`-based, both to avoid the exact type-checker blowup just fixed in `SettingsView` and because
+`logWindNow()`/`logWearToday()` already established "mutate then directly call NotificationManager" as this
+view's pattern. Locked (not-yet-unlocked) state shows a plain `Label` pointing at Settings, no purchase
+button — matching `AddWatchView`'s locked footer, not `SettingsView`'s full paywall section, since
+`WatchDetailView` doesn't have `PurchaseManager` injected and this isn't meant to be a primary conversion
+surface. `SettingsView`'s Reminders section footer was reworded to state the AND-gate relationship
+explicitly and point at each watch's own Reminders section; its interval picker was relabeled "Default
+Service Interval" to reflect that it's now a fallback, not the only source of truth. Both platforms build
+clean and the full unit test suite passes.
+One more same-day follow-up made the AND-gate relationship visible, not just documented in a footer:
+**`WatchDetailView`'s per-watch reminder controls now visually grey out when the matching app-wide master
+switch is off.** Two read-only `@AppStorage` properties were added
+(`isServiceDueReminderEnabledGlobally`/`isWindReminderEnabledGlobally`, same keys
+`NotificationManager.isServiceDueReminderEnabledKey`/`isWindReminderEnabledKey` that `SettingsView` writes —
+`WatchDetailView` only reads them, Settings still owns writing) and applied via `.disabled(...)` to the
+Service Due toggle + Service Interval picker (together, since both are meaningless once Service Due is
+globally off) and separately to the Wind Reminder toggle, since the two master switches are independent.
+The Reminders section's footer was also made conditional — it now names whichever specific master switch is
+actually off (Service Due, Wind, or both) instead of a static generic sentence, so the message only appears
+when relevant and says exactly what's overriding this watch's settings. Pure UI/visibility change, no new
+model or scheduling logic, so no new tests; both platforms build clean and the full suite still passes.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
@@ -252,7 +360,9 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   service-due wrench badge and, since 2026-07-17, a red "gauge.with.needle" power-reserve-depleted badge in
   the opposite corner) → `WatchDetailView` ("the Workbench": Form with an Edit toolbar button reopening
   `AddWatchView` pre-filled, a destructive Delete toolbar button, and these sections: Overview incl. optional
-  reference number, Straps (attach/detach picker + "Add New Strap…" → `AddStrapView` sheet, flags straps
+  reference number, Reminders (per-watch Service Due/Wind Reminder toggles + a Service Interval override,
+  added 2026-07-17 right after Overview for visibility — see the reminder-gating paragraphs earlier in this
+  file), Straps (attach/detach picker + "Add New Strap…" → `AddStrapView` sheet, flags straps
   already attached elsewhere), Service History (`AccuracyChartView` chart + "Log Service…" →
   `AddServiceRecordView` sheet), Wear Log ("Log Today" button + sorted `WearLog` entries), Power Reserve
   (manual/automatic watches only, see the Winding Log bullet below), Provenance ("Add Document…" →
@@ -400,12 +510,21 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches more than 3 years past
   their last (or acquisition) date, now derived from a shared `Watch.serviceDueDate` computed property so
   `MaintenanceView` and `NotificationManager`'s reminder scheduling can never disagree on the due date.
-  `NotificationManager.scheduleServiceDueReminder(for:)`/`cancelServiceDueReminder(for:)` are called from
-  `AddWatchView.save()` (create + edit), `AddServiceRecordView.save()` (logging a service resets the
-  3-year clock), and both delete paths (`WatchDetailView`'s toolbar Delete, `VaultGridView`'s context-menu
-  Delete); `ContentView` requests notification authorization and reschedules every watch once at launch.
-  Reminder identifiers are derived from `watch.persistentModelID` rather than a new stored field — no
-  schema change was needed for this feature. `DataBackupManager.swift` (also static-only, no view) provides
+  `NotificationManager.scheduleServiceDueReminder(for:isUnlocked:)`/`cancelServiceDueReminder(for:)`, plus
+  the equivalent `scheduleWindReminder(for:isUnlocked:)`/`cancelWindReminder(for:)` pair added 2026-07-17
+  (see the reminder-gating paragraph earlier in this file for the full story), are called from
+  `AddWatchView.save()` (create + edit, both reminders), `AddServiceRecordView.save()` (logging a service
+  resets the 3-year clock, Service Due only), `WatchDetailView`'s delete confirmation (cancels both — note
+  `VaultGridView`'s own context-menu Delete was removed entirely in Phase 14, see the Winding Log bullet),
+  and `WatchDetailView`'s "Wind Watch"/"Log Today" actions plus `VaultGridView`'s duplicate quick-action
+  versions of both (reschedule the wind reminder only, since either can shift `powerReserveExpiresAt`).
+  Every one of those call sites reads its own `Entitlements` `@Query`
+  and passes `isUnlocked` through — `NotificationManager` takes gating as an explicit parameter rather than
+  querying SwiftData itself. `ContentView` requests notification authorization once at launch and reschedules
+  every watch's reminders via `.onChange(of: isUnlocked, initial: true)`, so both a fresh launch and a
+  mid-session purchase trigger a full reschedule. Reminder identifiers are derived from
+  `watch.persistentModelID` rather than a new stored field — no schema change was needed for either
+  reminder feature. `DataBackupManager.swift` (also static-only, no view) provides
   the Data section's four operations: `exportWatchesCSV`/`importWatchesCSV` (a flat CSV of just `Watch`'s
   own fields, via a small hand-rolled CSV encoder/parser — no third-party dependency), and
   `exportEncryptedBackup`/`importEncryptedBackup` (a `Codable` snapshot of the entire collection — watches

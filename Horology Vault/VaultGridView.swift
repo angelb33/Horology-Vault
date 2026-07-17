@@ -20,8 +20,13 @@ struct VaultGridView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Query private var watches: [Watch]
+    @Query private var entitlements: [Entitlements]
     @State private var sortOption: SortOption = .brand
     @State private var isAddingWatch = false
+
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
 
@@ -119,6 +124,9 @@ struct VaultGridView: View {
     private func logWearToday(for watch: Watch) {
         let entry = WearLog(watch: watch)
         modelContext.insert(entry)
+        // Wearing an automatic also recharges its mainspring (see Watch.lastPoweredDate), so
+        // this can push powerReserveExpiresAt out; a no-op reschedule for manual/quartz watches.
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     /// Quicker access to Power Reserve's "Wind Watch" action (normally reached via
@@ -127,11 +135,12 @@ struct VaultGridView: View {
     private func logWindNow(for watch: Watch) {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
 }
 
 #Preview {
     VaultGridView()
-        .modelContainer(for: Watch.self, inMemory: true)
+        .modelContainer(for: [Watch.self, Entitlements.self], inMemory: true)
 }

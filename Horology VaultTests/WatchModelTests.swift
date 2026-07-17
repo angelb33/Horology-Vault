@@ -37,24 +37,24 @@ struct WatchModelTests {
 
     // MARK: - serviceDueDate / isServiceDue: no service records (falls back to acquisitionDate)
 
-    @Test("With no service records, serviceDueDate falls back to 3 years after acquisitionDate")
+    @Test("With no service records, serviceDueDate falls back to the default 5 years after acquisitionDate")
     func serviceDueDateFallsBackToAcquisitionDate() {
         let acquisition = Date(timeIntervalSince1970: 0)
         let watch = makeWatch(acquisitionDate: acquisition)
 
-        let expected = Calendar.current.date(byAdding: .year, value: 3, to: acquisition)
+        let expected = Calendar.current.date(byAdding: .year, value: 5, to: acquisition)
         #expect(watch.serviceDueDate == expected)
         #expect(watch.lastServiceDate == nil)
     }
 
-    @Test("A watch acquired more than 3 years ago with no service records is service due")
+    @Test("A watch acquired more than 5 years ago with no service records is service due")
     func watchWithNoServiceOlderThan3YearsIsDue() {
-        let acquisition = Calendar.current.date(byAdding: .year, value: -4, to: .now)!
+        let acquisition = Calendar.current.date(byAdding: .year, value: -6, to: .now)!
         let watch = makeWatch(acquisitionDate: acquisition)
         #expect(watch.isServiceDue == true)
     }
 
-    @Test("A watch acquired less than 3 years ago with no service records is not service due")
+    @Test("A watch acquired less than 5 years ago with no service records is not service due")
     func watchWithNoServiceWithin3YearsIsNotDue() {
         let acquisition = Calendar.current.date(byAdding: .year, value: -1, to: .now)!
         let watch = makeWatch(acquisitionDate: acquisition)
@@ -76,7 +76,7 @@ struct WatchModelTests {
         ]
 
         #expect(watch.lastServiceDate == newerService)
-        let expected = Calendar.current.date(byAdding: .year, value: 3, to: newerService)
+        let expected = Calendar.current.date(byAdding: .year, value: 5, to: newerService)
         #expect(watch.serviceDueDate == expected)
     }
 
@@ -90,19 +90,52 @@ struct WatchModelTests {
         #expect(watch.isServiceDue == false)
     }
 
-    @Test("A service record exactly 3 years old crosses the due boundary")
+    @Test("A service record exactly 5 years old crosses the due boundary")
     func serviceExactlyThreeYearsAgoIsDue() {
         let acquisition = Calendar.current.date(byAdding: .year, value: -10, to: .now)!
         let watch = makeWatch(acquisitionDate: acquisition)
-        let threeYearsAgo = Calendar.current.date(byAdding: .year, value: -3, to: .now)!
+        let fiveYearsAgo = Calendar.current.date(byAdding: .year, value: -5, to: .now)!
         // Push it a little further back so it's unambiguously past the boundary (avoids test
-        // flakiness from the few milliseconds elapsed between computing `threeYearsAgo` and the
+        // flakiness from the few milliseconds elapsed between computing `fiveYearsAgo` and the
         // `isServiceDue` check inside the test).
-        let justOverThreeYearsAgo = Calendar.current.date(byAdding: .day, value: -1, to: threeYearsAgo)!
+        let justOverFiveYearsAgo = Calendar.current.date(byAdding: .day, value: -1, to: fiveYearsAgo)!
         watch.serviceRecords = [
-            ServiceRecord(datePerformed: justOverThreeYearsAgo, serviceType: "Full Service", accuracyDeltaSPD: 0)
+            ServiceRecord(datePerformed: justOverFiveYearsAgo, serviceType: "Full Service", accuracyDeltaSPD: 0)
         ]
         #expect(watch.isServiceDue == true)
+    }
+
+    @Test("serviceDueDate uses the user-configured interval from UserDefaults instead of the default")
+    func serviceDueDateUsesConfiguredInterval() {
+        let key = NotificationManager.serviceIntervalYearsKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(2, forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        let acquisition = Date(timeIntervalSince1970: 0)
+        let watch = makeWatch(acquisitionDate: acquisition)
+        let expected = Calendar.current.date(byAdding: .year, value: 2, to: acquisition)
+        #expect(watch.serviceDueDate == expected)
+    }
+
+    @Test("serviceDueDate prefers the watch's own serviceIntervalYears override over the global UserDefaults default")
+    func serviceDueDateUsesPerWatchOverrideOverGlobalDefault() {
+        let key = NotificationManager.serviceIntervalYearsKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(2, forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        let acquisition = Date(timeIntervalSince1970: 0)
+        let watch = makeWatch(acquisitionDate: acquisition)
+        watch.serviceIntervalYears = 7
+        let expected = Calendar.current.date(byAdding: .year, value: 7, to: acquisition)
+        #expect(watch.serviceDueDate == expected)
     }
 
     // MARK: - wearCountSinceLastService (Insights dashboard's wear-vs-maintenance chart)
@@ -262,6 +295,36 @@ struct WatchModelTests {
         watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -2, to: .now)!)]
         watch.powerReserveHours = 42
         #expect(watch.isPowerReserveDepleted == false)
+    }
+
+    // MARK: - windReminderDate
+
+    @Test("windReminderDate is nil without a lead time, even with powerReserveExpiresAt set")
+    func windReminderDateIsNilWithoutLeadTime() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: .now)]
+        watch.powerReserveHours = 42
+        #expect(watch.windReminderDate == nil)
+    }
+
+    @Test("windReminderDate is nil without powerReserveExpiresAt, even with a lead time set")
+    func windReminderDateIsNilWithoutPowerReserveExpiresAt() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windReminderLeadTimeHours = 6
+        #expect(watch.windReminderDate == nil)
+    }
+
+    @Test("windReminderDate subtracts the lead time from powerReserveExpiresAt")
+    func windReminderDateSubtractsLeadTimeFromExpiration() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        let wound = Date(timeIntervalSince1970: 0)
+        watch.windLogs = [WindLog(dateWound: wound)]
+        watch.powerReserveHours = 42
+        watch.windReminderLeadTimeHours = 6
+        #expect(watch.windReminderDate == wound.addingTimeInterval((42 - 6) * 3600))
     }
 
     // MARK: - Cascade delete: ServiceRecord, WearLog, ProvenanceDoc

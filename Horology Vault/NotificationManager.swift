@@ -9,10 +9,28 @@ import Foundation
 import SwiftData
 import UserNotifications
 
-/// Schedules and cancels the local "service due" reminder for a `Watch`, driven by the
-/// same due-date math as `Watch.isServiceDue`/`MaintenanceView`. No backend involved —
-/// this is a V1, fully-local feature per the monetization plan.
+/// Schedules and cancels the local "service due" and "wind reminder" notifications for a
+/// `Watch`. Both are gated behind `isUnlocked` (the app's one-time lifetime-unlock
+/// entitlement) — callers pass their own `Entitlements.isLifetimeUnlocked` read rather than
+/// this static enum querying SwiftData itself, matching how `ScheduledBackupManager` takes
+/// its gating input from the caller instead of reaching into `@AppStorage`/`@Query` directly.
+/// No backend involved either way — this is a V1, fully-local feature per the monetization plan.
+/// User-facing enable/disable toggles and the service interval have two layers: an app-wide
+/// master switch in Settings (`UserDefaults.standard`, the same store `@AppStorage` there
+/// reads/writes, since a static enum can't hold `@AppStorage` itself — same pattern as
+/// `ScheduledBackupManager`'s keys), and a per-watch override (`Watch.isServiceDueReminderEnabled`/
+/// `isWindReminderEnabled`, set from the Workbench's Reminders section). Both must allow a
+/// reminder for it to fire — the master switch is an AND gate, not a fallback: turning it off
+/// silences every watch regardless of that watch's own setting, and turning it back on restores
+/// each watch's individual choice rather than force-enabling everything.
 enum NotificationManager {
+    // MARK: - UserDefaults keys (same store @AppStorage in SettingsView reads)
+
+    static let isServiceDueReminderEnabledKey = "isServiceDueReminderEnabled"
+    static let isWindReminderEnabledKey = "isWindReminderEnabled"
+    static let serviceIntervalYearsKey = "serviceIntervalYears"
+    static let defaultServiceIntervalYears = 5
+
     static func requestAuthorizationIfNeeded() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
@@ -21,11 +39,14 @@ enum NotificationManager {
         }
     }
 
-    static func scheduleServiceDueReminder(for watch: Watch) {
+    static func scheduleServiceDueReminder(for watch: Watch, isUnlocked: Bool) {
         let center = UNUserNotificationCenter.current()
-        let identifier = notificationIdentifier(for: watch)
+        let identifier = serviceDueIdentifier(for: watch)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
 
+        guard isUnlocked else { return }
+        guard UserDefaults.standard.object(forKey: isServiceDueReminderEnabledKey) as? Bool ?? true else { return }
+        guard watch.isServiceDueReminderEnabled ?? true else { return }
         guard let dueDate = watch.serviceDueDate, dueDate > Date() else { return }
 
         let content = UNMutableNotificationContent()
@@ -41,20 +62,55 @@ enum NotificationManager {
 
     static func cancelServiceDueReminder(for watch: Watch) {
         UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: [notificationIdentifier(for: watch)])
+            .removePendingNotificationRequests(withIdentifiers: [serviceDueIdentifier(for: watch)])
     }
 
-    /// Reschedules every watch's reminder — run once at launch so edits made outside the
-    /// app's own CRUD flows (e.g. a restored backup) still end up with correct reminders.
-    static func rescheduleAll(for watches: [Watch]) {
+    static func scheduleWindReminder(for watch: Watch, isUnlocked: Bool) {
+        let center = UNUserNotificationCenter.current()
+        let identifier = windReminderIdentifier(for: watch)
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+
+        guard isUnlocked else { return }
+        guard UserDefaults.standard.object(forKey: isWindReminderEnabledKey) as? Bool ?? true else { return }
+        guard watch.isWindReminderEnabled ?? true else { return }
+        guard let reminderDate = watch.windReminderDate, reminderDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Wind Reminder"
+        content.body = "\(watch.brand) \(watch.model)'s power reserve is about to run out — time to wind it."
+        content.sound = .default
+
+        let dateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: reminderDate
+        )
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        center.add(request)
+    }
+
+    static func cancelWindReminder(for watch: Watch) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [windReminderIdentifier(for: watch)])
+    }
+
+    /// Reschedules every watch's reminders — run once at launch, and again whenever the
+    /// lifetime-unlock entitlement changes, so a mid-session purchase activates reminders
+    /// immediately rather than requiring a relaunch, and edits made outside the app's own
+    /// CRUD flows (e.g. a restored backup) still end up with correct reminders.
+    static func rescheduleAll(for watches: [Watch], isUnlocked: Bool) {
         for watch in watches {
-            scheduleServiceDueReminder(for: watch)
+            scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+            scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
         }
     }
 
     /// `persistentModelID` is stable for a given record from the moment it's inserted,
     /// which makes it a safe, no-schema-change-needed key for de-duplicating reminders.
-    private static func notificationIdentifier(for watch: Watch) -> String {
+    private static func serviceDueIdentifier(for watch: Watch) -> String {
         "service-due-\(String(describing: watch.persistentModelID))"
+    }
+
+    private static func windReminderIdentifier(for watch: Watch) -> String {
+        "wind-reminder-\(String(describing: watch.persistentModelID))"
     }
 }

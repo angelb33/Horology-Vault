@@ -17,9 +17,20 @@ struct WatchDetailView: View {
 
     @Query private var allStraps: [Strap]
     @Query private var userProfiles: [UserProfile]
+    @Query private var entitlements: [Entitlements]
+
+    // Read-only here (Settings owns writing these) — used to grey out this watch's own reminder
+    // controls when the matching app-wide master switch is off, since those controls have no
+    // effect in that state. See NotificationManager's doc comment for the AND-gate relationship.
+    @AppStorage(NotificationManager.isServiceDueReminderEnabledKey) private var isServiceDueReminderEnabledGlobally = true
+    @AppStorage(NotificationManager.isWindReminderEnabledKey) private var isWindReminderEnabledGlobally = true
 
     private var compatibleStraps: [Strap] {
         allStraps.filter { $0.widthMM == watch.lugWidthMM }
+    }
+
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
     }
 
     @State private var isEditing = false
@@ -31,6 +42,7 @@ struct WatchDetailView: View {
     var body: some View {
         Form {
             overviewSection
+            remindersSection
             strapsSection
             serviceHistorySection
             wearLogSection
@@ -77,6 +89,7 @@ struct WatchDetailView: View {
         ) {
             Button("Delete", role: .destructive) {
                 NotificationManager.cancelServiceDueReminder(for: watch)
+                NotificationManager.cancelWindReminder(for: watch)
                 modelContext.delete(watch)
                 dismiss()
             }
@@ -103,6 +116,90 @@ struct WatchDetailView: View {
         } header: {
             SectionHeader("Overview")
         }
+    }
+
+    /// Per-watch reminder controls — enable/disable each reminder type and, for Service Due,
+    /// override the interval — placed right after Overview so they're the first thing visible
+    /// on the Workbench, per the user's request to make reminders "easy to identify" rather than
+    /// buried. `SettingsView`'s "Reminders" section still holds the app-wide master switches;
+    /// those are an AND gate over these per-watch settings, not a fallback — see
+    /// `NotificationManager`'s doc comment. Each binding's `set` reschedules that watch's
+    /// notification immediately, the same direct-call pattern `logWindNow()`/`logWearToday()`
+    /// already use, rather than adding more `.onChange` modifiers (which is what pushed
+    /// `SettingsView.body` over the type checker's limit when this was built there).
+    @ViewBuilder
+    private var remindersSection: some View {
+        if isUnlocked {
+            Section {
+                Toggle("Service Due Reminder", isOn: serviceDueReminderEnabledBinding)
+                    .disabled(!isServiceDueReminderEnabledGlobally)
+                Picker("Service Interval", selection: serviceIntervalYearsBinding) {
+                    ForEach(1...10, id: \.self) { years in
+                        Text("\(years) Year\(years == 1 ? "" : "s")").tag(years)
+                    }
+                }
+                .disabled(!isServiceDueReminderEnabledGlobally)
+                if watch.movementType == .manual || watch.movementType == .automatic {
+                    Toggle("Wind Reminder", isOn: windReminderEnabledBinding)
+                        .disabled(!isWindReminderEnabledGlobally)
+                }
+            } header: {
+                SectionHeader("Reminders")
+            } footer: {
+                // Only mention whichever master switch is actually off, rather than a generic
+                // reminder every time — the greyed-out controls above already show which one.
+                if !isServiceDueReminderEnabledGlobally && !isWindReminderEnabledGlobally {
+                    Text("Service Due and Wind Reminders are both turned off in Settings, which overrides this watch's settings. Turn them back on in Settings to restore this watch's own choices.")
+                } else if !isServiceDueReminderEnabledGlobally {
+                    Text("Service Due Reminders are turned off in Settings, which overrides this watch's setting. Turn it back on in Settings to restore this watch's own choice.")
+                } else if !isWindReminderEnabledGlobally {
+                    Text("Wind Reminders are turned off in Settings, which overrides this watch's setting. Turn it back on in Settings to restore this watch's own choice.")
+                }
+            }
+        } else {
+            Section {
+                Label("Reminders are a Full Version Feature", systemImage: "lock")
+                    .foregroundStyle(.secondary)
+            } header: {
+                SectionHeader("Reminders")
+            } footer: {
+                Text("Unlock in Settings to get notified when this watch is due for service or needs winding.")
+            }
+        }
+    }
+
+    private var serviceDueReminderEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { watch.isServiceDueReminderEnabled ?? true },
+            set: { newValue in
+                watch.isServiceDueReminderEnabled = newValue
+                NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+            }
+        )
+    }
+
+    private var serviceIntervalYearsBinding: Binding<Int> {
+        Binding(
+            get: {
+                watch.serviceIntervalYears
+                    ?? UserDefaults.standard.object(forKey: NotificationManager.serviceIntervalYearsKey) as? Int
+                    ?? NotificationManager.defaultServiceIntervalYears
+            },
+            set: { newValue in
+                watch.serviceIntervalYears = newValue
+                NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+            }
+        )
+    }
+
+    private var windReminderEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { watch.isWindReminderEnabled ?? true },
+            set: { newValue in
+                watch.isWindReminderEnabled = newValue
+                NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+            }
+        )
     }
 
     private var strapsSection: some View {
@@ -190,6 +287,9 @@ struct WatchDetailView: View {
     private func logWearToday() {
         let entry = WearLog(watch: watch)
         modelContext.insert(entry)
+        // Wearing an automatic also recharges its mainspring (see Watch.lastPoweredDate), so
+        // this can push powerReserveExpiresAt out; a no-op reschedule for manual/quartz watches.
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     @ViewBuilder
@@ -235,6 +335,7 @@ struct WatchDetailView: View {
     private func logWindNow() {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     private var provenanceSection: some View {
@@ -382,6 +483,7 @@ private struct AddStrapView: View {
 private struct AddServiceRecordView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var entitlements: [Entitlements]
 
     let watch: Watch
 
@@ -391,6 +493,10 @@ private struct AddServiceRecordView: View {
 
     private var canSave: Bool {
         !serviceType.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
     }
 
     var body: some View {
@@ -449,7 +555,7 @@ private struct AddServiceRecordView: View {
             watch: watch
         )
         modelContext.insert(record)
-        NotificationManager.scheduleServiceDueReminder(for: watch)
+        NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
         dismiss()
     }
 }
@@ -532,5 +638,5 @@ private struct AddProvenanceDocView: View {
     NavigationStack {
         WatchDetailView(watch: Watch(brand: "Rolex", model: "Explorer", caseDiameterMM: 36, lugToLugMM: 44, lugWidthMM: 19))
     }
-    .modelContainer(for: Watch.self, inMemory: true)
+    .modelContainer(for: [Watch.self, Entitlements.self], inMemory: true)
 }

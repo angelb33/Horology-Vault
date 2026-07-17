@@ -72,6 +72,14 @@ struct ContentView: View {
         #endif
     }
 
+    /// Service Due and Wind reminders are both gated behind the lifetime unlock — see
+    /// `NotificationManager`'s doc comment. Exposed here so `body` can reschedule everything
+    /// the moment this flips (a mid-session purchase activates reminders immediately, no
+    /// relaunch needed), not just once at launch.
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
+    }
+
     var body: some View {
         splitView
             .environment(purchaseManager)
@@ -82,9 +90,11 @@ struct ContentView: View {
                 NSApp.appearance = newValue.nsAppearance
             }
             #endif
+            .onChange(of: isUnlocked, initial: true) { _, newValue in
+                NotificationManager.rescheduleAll(for: watches, isUnlocked: newValue)
+            }
             .task {
                 NotificationManager.requestAuthorizationIfNeeded()
-                NotificationManager.rescheduleAll(for: watches)
                 seedDemoDataIfNeeded()
                 purchaseManager.configure(modelContext: modelContext)
                 await purchaseManager.loadProduct()
