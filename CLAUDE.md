@@ -5,7 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project state
 
 The Xcode default template has been replaced with the real app, and V1's local-only feature set (Section 1
-of the monetization plan) is now fully built out — Phases 1–12 of Section 6's ordered plan are all done. The
+of the monetization plan) is now fully built out — Phases 1–12 of Section 6's ordered plan are all done, plus
+two further features shipped outside that plan's original scope (Phase 13 Learn Hub, Phase 14 Winding Log —
+see below). The
 SwiftData model layer (`Watch.swift`, `Strap.swift`,
 `ServiceRecord.swift`, `UserProfile.swift`, `WishlistItem.swift`, `WearLog.swift`, `ProvenanceDoc.swift`) and
 the Vault UI (`VaultGridView.swift`, `WatchCardView.swift`, `WatchDetailView.swift`, `AccuracyChartView.swift`,
@@ -85,10 +87,60 @@ quitting/relaunching Simulator or, per this machine's documented history of stuc
 StoreKit known issue below), a full restart. **The first-launch demo watch was changed** from a real "Rolex
 Explorer" to an explicitly fictional "Sample Brand" / "Example Watch" placeholder in
 `ContentView.seedDemoDataIfNeeded()`, so a fresh install no longer implies the seeded sample is a real product.
-All of the above builds clean on both macOS and iOS Simulator (`iPhone 17` this session — this machine also
-has `iPhone 16` installed, so the Common Commands section below still points at a real, working device) with
+All of the above builds clean on both macOS and iOS Simulator (`iPhone 17` this session) with
 zero warnings; none touched business logic, so no new tests were added, and none was visually confirmed in
 Xcode's Canvas/Simulator from inside this session (same sandbox limitation noted throughout this file).
+(Note, 2026-07-17: this machine no longer has `iPhone 16` installed — only `iPhone 17`+ simulators — so the
+Common Commands section below now points at `iPhone 17` instead.)
+A further feature was added and shipped 2026-07-17, outside the monetization plan's original V1 scope, same
+pattern as Learn Hub: **Phase 14, Winding Log / Power Reserve tracking** — a mechanical-watch winding
+tracker. `Watch.swift` gained a `MovementType` enum (`.manual`/`.automatic`/`.quartz`), optional
+`movementType`/`powerReserveHours` fields, a cascade-delete `windLogs` relationship, and computed properties
+(`lastWoundDate`, `lastPoweredDate`, `powerReserveExpiresAt`, `isPowerReserveDepleted` — see Architecture
+below for the automatic-vs-manual branching). A new `WindLog.swift` model (mirrors `WearLog`) was registered
+in the `Schema([...])` array in `Horology_Vault_App.swift`. `AddWatchView` gained a "Movement" section
+(type picker + conditional power-reserve-hours field), `WatchDetailView` gained a "Power Reserve" section
+(Wind Watch button, relative-date status text, wind history), and `WatchCardView` gained a red
+"gauge.with.needle" badge (SF Symbol existence verified via a throwaway `NSImage` check first, continuing
+this project's established practice after the Learn Hub "feather" incident) for depleted watches, opposite
+corner from the existing orange service-due wrench badge. Quartz movements deliberately got no new schema —
+a battery swap is just a normal Service Record with `serviceType` "Battery Replacement", reusing existing
+infra rather than building a parallel system. 10 new tests were added to `WatchModelTests.swift` covering
+the manual/automatic/quartz `lastPoweredDate` branching and `WindLog` cascade-delete (the existing
+"all relationship kinds" cascade test was extended to include `WindLog`). Both macOS and iOS Simulator
+(`iPhone 17`) builds are clean and the full unit test suite passes; same longstanding sandbox limitation as
+the rest of this app's UI work, this hasn't been visually confirmed in Xcode. `ContentView.seedDemoDataIfNeeded()`'s
+first-launch sample watch was updated to `movementType: .automatic, powerReserveHours: 42` (a standard
+automatic spec) so a fresh install's demo watch actually demonstrates the feature. `VaultGridView`'s
+long-press quick-action menu on watch cards was also revised this session: "Delete" was removed from it
+(delete already existed correctly via `WatchDetailView`'s toolbar with its own confirmation dialog, so this
+was a straight removal of dead-end duplicate UI, including the now-unused `watchPendingDeletion` state and
+its `confirmationDialog`), and a "Wind Watch" quick action was added in its place, shown only for
+manual/automatic watches. Two smaller, unrelated fixes shipped the same session: **sidebar icon tinting** —
+`ContentView`'s sidebar `Label`s now tint just their icon (not the row text) with the user's chosen accent
+color, matching the Apple Reminders/Notes pattern (an earlier attempt at tinting the whole sidebar List
+background was tried at the user's request, then reverted per feedback) — and a **Learn Hub accent-color
+bug fix**: `LearnHubView.swift`'s `LearnTopicRow`/`CategoryChip`/`InYourVaultCard` were hardcoded to
+`Color.accentColor` (a fixed asset-catalog color that does not track `.tint()`), so Learn Hub's icons were
+silently stuck on default blue regardless of the user's Settings accent-color choice; fixed by reading
+`@AppStorage("accentColorOption")` directly, the same pattern `ContentView`/`SettingsView` already use.
+**Also this session, still UNVERIFIED as of 2026-07-17 — needs a user retest before being treated as
+resolved:** a real appearance bug where switching Appearance from Light to System (with the Mac itself in
+Dark mode) left some surfaces, notably the sidebar, stuck showing light-mode styling instead of following
+the system. A first fix (explicitly setting `NSApp.appearance` in a new `.onChange(of: colorSchemePreference,
+initial: true)` in `ContentView.swift`) did not fully resolve it per the user's own retest. A follow-up fix
+is now also in place: `ContentView.body` was split so the `NavigationSplitView` lives in a new `splitView`
+computed property carrying `.id(colorSchemePreference)`, forcing SwiftUI to fully tear down and rebuild that
+subtree (not just repaint it) on every preference change, while `.task` (notification scheduling, StoreKit
+reconciliation, demo-data seeding) stays outside that `.id()`'d subtree so it doesn't needlessly re-run on
+every appearance toggle. Both fixes are in place together (belt-and-suspenders); both platforms build clean,
+but **the user has not yet confirmed whether this actually fixes the reported bug — treat it as unverified,
+not done, until retested.** Separately, a V2 CloudKit Sync phase (a Phase 15 candidate, tentatively) was
+discussed and scoped in detail this session but **not implemented** — no code was written. Worth
+referencing if picked up later: it needs manual iCloud capability setup in Xcode (no `.entitlements` file
+exists in this project yet), schema changes across most `@Model`s (CloudKit requires default values on every
+property), and `Entitlements` should stay in a separate, non-CloudKit-synced `ModelConfiguration` to avoid a
+duplicate-row risk across multiple devices sharing one iCloud account.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
@@ -109,7 +161,7 @@ xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault" -destina
 
 **Build (iOS Simulator):**
 ```bash
-xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault" -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -project "Horology Vault.xcodeproj" -scheme "Horology Vault" -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
 **Run all tests (unit + UI):**
@@ -170,19 +222,28 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   "arrow.up.arrow.down")`, rather than a bare menu-style `Picker` — a menu-style `Picker` renders the
   *selected option's text* (e.g. "Brand") as its own toolbar button title, which is what made it render wide
   in the first place; wrap any similarly compact toolbar picker in a `Menu` with an icon label instead of
-  relying on `.pickerStyle(.menu)` alone.
+  relying on `.pickerStyle(.menu)` alone. **Sidebar icon tinting** (2026-07-17): `ContentView`'s sidebar
+  `Label`s use the `Label(title:icon:)` init so only the icon (not the row text) picks up
+  `.foregroundStyle(accentColorOption.color)`, matching the Apple Reminders/Notes look — tinting the whole
+  sidebar `List` background was tried first and reverted per feedback, so don't reintroduce that. **Appearance
+  switching (Light/Dark/System) has a known, still-unverified fix as of 2026-07-17** — see the "Known issue"
+  bullet near the end of this list before touching `ContentView`'s `.preferredColorScheme`/`.id(...)` setup.
 - **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,
-  empty state via `ContentUnavailableView`, `+` toolbar button sheets `AddWatchView`, context-menu Delete
-  with a `confirmationDialog`) → `WatchCardView` (photo thumbnail, smart-cropped via Vision saliency
-  detection so the square crop centers on the subject rather than the geometric center — see
-  `WatchCardView.swift`'s `saliencyFocusPoint`/`SmartCroppedImage` — plus a service-due badge) →
-  `WatchDetailView` ("the Workbench": Form with an Edit toolbar button reopening `AddWatchView` pre-filled,
-  a destructive Delete toolbar button, and these sections: Overview incl. optional reference number, Straps
-  (attach/detach picker + "Add New Strap…" → `AddStrapView` sheet, flags straps already attached elsewhere),
-  Service History (`AccuracyChartView` chart + "Log Service…" → `AddServiceRecordView` sheet), Wear Log
-  ("Log Today" button + sorted `WearLog` entries), Provenance ("Add Document…" → `AddProvenanceDocView`
-  sheet using `.fileImporter` for PDF/image + swipe-to-delete list), and Fit Preview (embeds
-  `FitDiagramView`)). `AddStrapView`/`AddServiceRecordView`/`AddProvenanceDocView` are private structs
+  empty state via `ContentUnavailableView`, `+` toolbar button sheets `AddWatchView`; long-press context
+  menu has "Log Today" and, for manual/automatic watches, "Wind Watch" — **Delete was removed from this menu
+  2026-07-17** since it duplicated `WatchDetailView`'s toolbar Delete, which already has its own
+  `confirmationDialog`; don't re-add a second delete entry point here) → `WatchCardView` (photo thumbnail,
+  smart-cropped via Vision saliency detection so the square crop centers on the subject rather than the
+  geometric center — see `WatchCardView.swift`'s `saliencyFocusPoint`/`SmartCroppedImage` — plus an orange
+  service-due wrench badge and, since 2026-07-17, a red "gauge.with.needle" power-reserve-depleted badge in
+  the opposite corner) → `WatchDetailView` ("the Workbench": Form with an Edit toolbar button reopening
+  `AddWatchView` pre-filled, a destructive Delete toolbar button, and these sections: Overview incl. optional
+  reference number, Straps (attach/detach picker + "Add New Strap…" → `AddStrapView` sheet, flags straps
+  already attached elsewhere), Service History (`AccuracyChartView` chart + "Log Service…" →
+  `AddServiceRecordView` sheet), Wear Log ("Log Today" button + sorted `WearLog` entries), Power Reserve
+  (manual/automatic watches only, see the Winding Log bullet below), Provenance ("Add Document…" →
+  `AddProvenanceDocView` sheet using `.fileImporter` for PDF/image + swipe-to-delete list), and Fit Preview
+  (embeds `FitDiagramView`)). `AddStrapView`/`AddServiceRecordView`/`AddProvenanceDocView` are private structs
   defined inside `WatchDetailView.swift`, not separate files. Sibling sections: `FitCalculatorView`
   (standalone watch picker embedding `FitDiagramView`, a `Canvas`-based top-down lug-to-lug-vs-wrist diagram
   with a fits/overhangs verdict), `WishlistView` (list of `WishlistItem`, price-alert toggle present but
@@ -237,7 +298,37 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   interactive diagram, a movements comparison table, `@AppStorage`-backed read/progress tracking — are not
   built. Like the rest of this app's UI work, the visual result hasn't been manually eyeballed in Xcode's
   Canvas/Simulator from inside a session (no Screen Recording/Apple Events permission in this sandbox); the
-  user should do a final visual pass in Xcode.
+  user should do a final visual pass in Xcode. **Bug fixed 2026-07-17:** `LearnTopicRow`, `CategoryChip`,
+  and `InYourVaultCard` were hardcoded to `Color.accentColor` (a fixed asset-catalog color that does not
+  track the app's `.tint()` modifier), so Learn Hub's icons silently ignored whatever accent color the user
+  picked in Settings; fixed by having each read `@AppStorage("accentColorOption")` directly instead, the
+  same pattern `ContentView`/`SettingsView` already use — use `accentColorOption.color`, never
+  `Color.accentColor`, anywhere in this app that needs the user's chosen accent.
+- **Winding Log / Power Reserve tracking** (added 2026-07-17, Phase 14, not originally in the monetization
+  plan — same "shipped outside the plan" pattern as Learn Hub): a mechanical-watch winding tracker.
+  `Watch.swift` gained a `MovementType` enum (`.manual`/`.automatic`/`.quartz`, `Codable`+`CaseIterable`),
+  optional `movementType`/`powerReserveHours` fields, and a cascade-delete `windLogs` relationship to the new
+  `WindLog.swift` model (mirrors `WearLog`: just `dateWound` + a `watch` back-reference). Four computed
+  properties on `Watch` do the actual tracking: `lastWoundDate` (max of `windLogs`), `lastPoweredDate`
+  (`.manual` → `lastWoundDate` only; `.automatic` → the later of `lastWoundDate` and the most recent
+  `WearLog.dateWorn`, since wearing an automatic also recharges its mainspring via wrist motion; `.quartz`/
+  unset → `nil`, quartz doesn't track this at all), `powerReserveExpiresAt` (`lastPoweredDate` +
+  `powerReserveHours` hours), and `isPowerReserveDepleted`. **Known, intentional scope cut:** an automatic
+  watch sitting in a winder box — not worn, not explicitly logged as wound — has no signal the app can see,
+  so it can read as falsely depleted; this is accepted, not a bug to fix. Quartz movements deliberately got
+  no new schema at all — a battery swap is just a normal `ServiceRecord` with `serviceType` "Battery
+  Replacement" (already free text), reusing existing infra instead of a parallel system. UI: `AddWatchView`
+  gained a "Movement" section (type picker; the power-reserve-hours field only shows for manual/automatic
+  and is cleared via `effectivePowerReserveHours` if the user switches away from those), `WatchDetailView`
+  gained a "Power Reserve" section (Wind Watch button, relative-date status text via
+  `.formatted(.relative(presentation: .named))`, wind history list), `VaultGridView`'s context menu gained a
+  matching "Wind Watch" quick action, and `WatchCardView` gained a red "gauge.with.needle" badge for
+  depleted watches (SF Symbol existence verified with a throwaway `NSImage` check before use, per the
+  established practice below after the "feather" incident). `WindLog` is registered in the `Schema([...])`
+  array in `Horology_Vault_App.swift`. Covered by 10 new tests in `WatchModelTests.swift` (movement-type
+  branching of `lastPoweredDate`, `WindLog` cascade-delete, folded into the existing "all relationship
+  kinds" cascade test). Both platforms build clean, full suite passes; not yet visually confirmed in Xcode,
+  same sandbox limitation as everything else UI in this project.
   `NotificationManager.swift` (a static-only enum, not a view) schedules/cancels the local "service due"
   reminder per watch — see Persistence below for the due-date math it shares with `Watch.isServiceDue`.
   `PurchaseManager.swift` (an `@Observable` class, not a view either) is injected into the environment from
@@ -283,8 +374,9 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
 - **Persistence:** SwiftData (`ModelContainer` / `@Query` / `@Model`), configured once in
   `Horology_Vault_App.swift` and injected via `.modelContainer(...)`. Current schema is
   `[Watch.self, Strap.self, ServiceRecord.self, UserProfile.self, WishlistItem.self, WearLog.self,
-  ProvenanceDoc.self, CustomServiceCenter.self, Entitlements.self, ServiceContactOverride.self]`. `Watch`
-  cascade-deletes its `ServiceRecord`s, `WearLog`s, and `ProvenanceDoc`s, and
+  ProvenanceDoc.self, WindLog.self, CustomServiceCenter.self, Entitlements.self, ServiceContactOverride.self]`
+  (`WindLog` added 2026-07-17, see the Winding Log bullet above). `Watch`
+  cascade-deletes its `ServiceRecord`s, `WearLog`s, `WindLog`s, and `ProvenanceDoc`s, and
   nullifies its `Strap` relationship on delete; `Watch.isServiceDue` flags watches more than 3 years past
   their last (or acquisition) date, now derived from a shared `Watch.serviceDueDate` computed property so
   `MaintenanceView` and `NotificationManager`'s reminder scheduling can never disagree on the due date.
@@ -371,3 +463,19 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   clear can't touch. Next step: retry after a full Mac restart (force-kills/restarts the daemon); if
   `ASDErrorDomain 825` persists even then, treat iOS Simulator as the primary target for purchase-flow
   testing going forward rather than macOS-native StoreKit Testing.
+- **Known issue (open/UNVERIFIED as of 2026-07-17): appearance switching may still get stuck on the wrong
+  color scheme.** Reported bug: switching Settings' Appearance preference from Light to System, with the
+  Mac's own system appearance set to Dark, left some surfaces — notably the `NavigationSplitView` sidebar —
+  visibly stuck in light-mode styling instead of following the system. First fix attempt (explicitly
+  assigning `NSApp.appearance` from a new `.onChange(of: colorSchemePreference, initial: true)` in
+  `ContentView.swift`) did **not** fully resolve it per the user's own retest ("it still happens"). A
+  follow-up fix is now also in place: `ContentView.body` was refactored to move the `NavigationSplitView`
+  into a new `splitView` computed property with `.id(colorSchemePreference)` attached, forcing SwiftUI to
+  fully tear down and rebuild that whole subtree (not just repaint it) on every preference change, while
+  `.task` (notification scheduling, StoreKit reconciliation, demo-data seeding) stays outside that `.id()`'d
+  subtree so those one-time launch operations don't needlessly rerun on every appearance toggle. Both fixes
+  are in place together, and both macOS/iOS builds are clean — **but the user has not yet retested whether
+  this actually fixes the reported bug.** Treat this as unverified, not resolved, until confirmed; if it
+  still reproduces, the next thing to check is whether `NSVisualEffectView`-backed sidebar vibrancy material
+  specifically needs a more targeted fix (e.g. forcing the effect view's `appearance` property directly)
+  rather than relying on either `.preferredColorScheme` or a view-identity reset.

@@ -8,6 +8,14 @@
 import Foundation
 import SwiftData
 
+enum MovementType: String, Codable, CaseIterable, Identifiable {
+    case manual = "Manual"
+    case automatic = "Automatic"
+    case quartz = "Quartz"
+
+    var id: String { rawValue }
+}
+
 @Model
 final class Watch {
     var brand: String
@@ -19,6 +27,8 @@ final class Watch {
     var lugWidthMM: Double
     var acquisitionDate: Date
     var purchasePrice: Double?
+    var movementType: MovementType?
+    var powerReserveHours: Double?
 
     @Attribute(.externalStorage)
     var photoData: Data?
@@ -35,6 +45,9 @@ final class Watch {
     @Relationship(deleteRule: .cascade, inverse: \ProvenanceDoc.watch)
     var provenanceDocs: [ProvenanceDoc] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \WindLog.watch)
+    var windLogs: [WindLog] = []
+
     init(
         brand: String,
         model: String,
@@ -45,7 +58,9 @@ final class Watch {
         lugWidthMM: Double,
         acquisitionDate: Date = Date(),
         photoData: Data? = nil,
-        purchasePrice: Double? = nil
+        purchasePrice: Double? = nil,
+        movementType: MovementType? = nil,
+        powerReserveHours: Double? = nil
     ) {
         self.brand = brand
         self.model = model
@@ -57,6 +72,8 @@ final class Watch {
         self.acquisitionDate = acquisitionDate
         self.photoData = photoData
         self.purchasePrice = purchasePrice
+        self.movementType = movementType
+        self.powerReserveHours = powerReserveHours
     }
 
     var lastServiceDate: Date? {
@@ -93,6 +110,41 @@ final class Watch {
     var costPerWear: Double? {
         guard let purchasePrice, !wearLogs.isEmpty else { return nil }
         return purchasePrice / Double(wearLogs.count)
+    }
+
+    /// The most recent `WindLog` entry's date, if any.
+    var lastWoundDate: Date? {
+        windLogs.map(\.dateWound).max()
+    }
+
+    /// The date power was last put into the movement. For `.manual` movements this is only
+    /// ever an explicit wind; for `.automatic` movements, wearing the watch also recharges
+    /// the mainspring via wrist motion, so the most recent `WearLog` entry counts too.
+    /// `.quartz` (and unset) movements don't track power reserve at all. Note: an automatic
+    /// sitting in a watch winder — not worn, not explicitly wound — isn't visible to the app
+    /// and will read as depleted even if it isn't; a known limitation rather than a bug.
+    var lastPoweredDate: Date? {
+        guard let movementType else { return nil }
+        switch movementType {
+        case .manual:
+            return lastWoundDate
+        case .automatic:
+            return [lastWoundDate, wearLogs.map(\.dateWorn).max()].compactMap { $0 }.max()
+        case .quartz:
+            return nil
+        }
+    }
+
+    /// When the mainspring is expected to run down, derived from `lastPoweredDate` plus the
+    /// user-entered `powerReserveHours` spec. `nil` if either is missing.
+    var powerReserveExpiresAt: Date? {
+        guard let lastPoweredDate, let powerReserveHours else { return nil }
+        return lastPoweredDate.addingTimeInterval(powerReserveHours * 3600)
+    }
+
+    var isPowerReserveDepleted: Bool {
+        guard let powerReserveExpiresAt else { return false }
+        return powerReserveExpiresAt < Date()
     }
 
     /// The canonical complication vocabulary — shared by `AddWatchView`'s toggle list and

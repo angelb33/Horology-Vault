@@ -1,5 +1,87 @@
 # Session Log
 
+## 2026-07-17 — Session 9
+
+### Accomplished this session
+
+- **V2 CloudKit Sync scoped conversationally (Phase 15 candidate, NOT implemented):** discussed in detail
+  what a CloudKit-synced tier would require — manual iCloud capability setup in Xcode (no `.entitlements`
+  file exists in this project yet), default values needed on most `@Model` properties (a CloudKit
+  requirement), and keeping `Entitlements` in a separate, non-synced `ModelConfiguration` to avoid
+  duplicate-row risk across a user's multiple devices. Purely planning — no code was written. Reference this
+  if V2 sync work actually starts.
+- **Winding Log / Power Reserve tracking, Phase 14 (outside the monetization plan's original scope, same
+  pattern as Learn Hub/Phase 13) — fully built and tested:** `Watch.swift` gained a `MovementType` enum
+  (manual/automatic/quartz), optional `movementType`/`powerReserveHours` fields, a cascade-delete `windLogs`
+  relationship, and computed properties `lastWoundDate`, `lastPoweredDate` (automatic movements also treat
+  wearing the watch as recharging it, via `WearLog`), `powerReserveExpiresAt`, `isPowerReserveDepleted`. New
+  `WindLog.swift` model (mirrors `WearLog`), registered in the `Schema([...])` array in
+  `Horology_Vault_App.swift`. `AddWatchView.swift` gained a "Movement" section (type picker + conditional
+  power-reserve-hours field, cleared on switching away from manual/automatic). `WatchDetailView.swift`
+  gained a "Power Reserve" section (Wind Watch button, relative-date status text, wind history), shown only
+  for manual/automatic watches. `WatchCardView.swift` gained a red "gauge.with.needle" badge (SF Symbol
+  existence verified via a throwaway `NSImage` check first, continuing the practice established after the
+  Learn Hub "feather" incident) for power-reserve-depleted watches, opposite corner from the existing orange
+  service-due wrench badge. Quartz movements deliberately got no new schema — battery swaps are logged as a
+  normal Service Record with type "Battery Replacement," reusing existing infra. 10 new unit tests added to
+  `WatchModelTests.swift` (manual/automatic/quartz `lastPoweredDate` branching, `WindLog` cascade-delete,
+  folded into the existing "all relationship kinds" cascade test). Both macOS and iOS Simulator (`iPhone
+  17`) builds verified clean, full unit test suite passes. UI test runner failed to launch due to this
+  sandbox's known Screen Recording/Apple Events permission limitation — unrelated to this work, not a
+  regression. Known/accepted limitation (not a bug): an automatic watch sitting in a winder box, never worn
+  or explicitly wound, has no signal the app can see and may read as falsely depleted.
+- **`VaultGridView.swift` quick-action menu revised:** removed "Delete" from the long-press context menu
+  (it duplicated `WatchDetailView`'s toolbar Delete, which already has its own confirmation dialog — a
+  straight removal, including the now-unused `watchPendingDeletion` state and its `confirmationDialog`);
+  added a "Wind Watch" quick action in its place, shown only for manual/automatic watches.
+- **Demo watch updated:** `ContentView.seedDemoDataIfNeeded()`'s first-launch sample watch now includes
+  `movementType: .automatic, powerReserveHours: 42` (a standard automatic spec, e.g. ETA 2824-2) so a fresh
+  install's sample actually demonstrates the new Power Reserve feature instead of hiding it by default.
+- **Stale doc reference fixed:** `CLAUDE.md`'s Common Commands section referenced an `iPhone 16` iOS
+  Simulator destination no longer installed on this machine (only `iPhone 17`+ now) — updated the build
+  command and the related Project State narrative note to say `iPhone 17`.
+- **Sidebar icon tinting:** `ContentView`'s sidebar `Label`s now tint just their icon (not the row text)
+  with the user's chosen accent color, matching the Apple Reminders/Notes pattern. A first attempt tinted
+  the whole sidebar `List` background instead — reverted per the user's feedback ("just wanted to see if it
+  looked good") before landing on the icon-only version, which stuck.
+- **Learn Hub accent-color bug found and fixed:** `LearnTopicRow`, `CategoryChip`, and `InYourVaultCard` in
+  `LearnHubView.swift` were hardcoded to `Color.accentColor` (a fixed asset-catalog color that does not
+  track the app's `.tint()` modifier), so Learn Hub's icons/chips were silently stuck on default blue
+  regardless of the user's Settings accent-color choice. Fixed by having each read
+  `@AppStorage("accentColorOption")` directly, the same pattern `ContentView`/`SettingsView` already use.
+- **Appearance (color scheme) bug — fix applied, retest still pending, see Pending below.**
+- `CLAUDE.md`'s Project State and Architecture sections were updated in place to reflect all of the above
+  (Winding Log's own new Architecture bullet, updated Persistence schema list, updated View Hierarchy bullet
+  for the Vault context-menu change, updated Learn Hub bullet for the accent-color fix, a new "Known issue"
+  bullet for the unverified appearance fix, plus the `Color.accentColor` tinting note under UI framework).
+
+### Pending / next steps
+
+- **TOP PRIORITY — unverified bug fix, needs retest:** the reported appearance-switching bug (Light →
+  System with the Mac in Dark mode left the sidebar stuck in light styling) got two fix attempts this
+  session — an `NSApp.appearance` assignment in `ContentView`'s new `.onChange(of: colorSchemePreference,
+  initial: true)`, which the user confirmed did **not** fully fix it on retest, and a follow-up
+  `.id(colorSchemePreference)` added to a newly split-out `splitView` computed property (forces the whole
+  `NavigationSplitView` subtree, sidebar included, to fully rebuild on preference change rather than just
+  repaint). Both fixes are in place together and both platforms build clean, but **the user has not yet
+  retested whether this actually resolves the bug.** Confirm before treating this as closed — if it still
+  reproduces, next idea is forcing the sidebar's `NSVisualEffectView` appearance more directly rather than
+  relying on `.preferredColorScheme`/view-identity alone.
+- **All other work this session (Winding Log end-to-end, Vault quick-menu changes, demo watch update,
+  iPhone 16→17 doc fix, sidebar icon tinting, Learn Hub accent-color fix) is code-complete and
+  build/test-verified, but — same longstanding gap as every prior session — none of the new UI has been
+  visually confirmed in Xcode's Canvas/Simulator from inside this sandbox** (no Screen Recording/Apple
+  Events permission here). A visual pass by the user in Xcode is still warranted for all of it.
+- V2 CloudKit Sync remains an unimplemented, conversationally-scoped candidate (see Accomplished above) —
+  do not start building it unprompted; V2 as a whole is still gated on V1 getting real user traction.
+- The open macOS-native StoreKit Testing purchase failure (`ASDErrorDomain Code=825`) from Session 7 was not
+  touched this session — still first priority whenever purchase-flow work resumes; see `CLAUDE.md`'s "Known
+  issue" bullet.
+- This session's work (new `Horology Vault/WindLog.swift` plus modifications across `Watch.swift`,
+  `WatchCardView.swift`, `WatchDetailView.swift`, `AddWatchView.swift`, `VaultGridView.swift`,
+  `ContentView.swift`, `Horology_Vault_App.swift`, `LearnHubView.swift`, `WatchModelTests.swift`,
+  `CLAUDE.md`, and this file) was committed and pushed to `origin/main` at session close.
+
 ## 2026-07-15 — Session 8
 
 ### Accomplished this session
@@ -66,8 +148,9 @@
 - None of this session's UI changes (SectionHeader typography, the Sort menu icon button, the new Service
   Center form fields) have been visually confirmed by the user in Xcode yet — worth a pass before treating
   them as final, same outstanding gap as recent sessions.
-- Working tree was left uncommitted at session close (documentation-focused close-out, not a full
-  close-session run) — review the diff and commit when ready.
+- Committed and pushed as `e10bae4` ("Add manufacturer contact fields; centered section headers; fix
+  Liquid Glass toolbar fusion") after this entry was originally written as a documentation-only,
+  uncommitted close-out — that status is now stale; `origin/main` is up to date.
 - V2 (subscription tier) remains out of scope, gated on V1 getting real user traction — do not start
   unprompted.
 

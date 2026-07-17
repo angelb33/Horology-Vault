@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     enum Section: String, CaseIterable, Identifiable {
@@ -45,10 +48,51 @@ struct ContentView: View {
     @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
 
     var body: some View {
+        splitView
+            .environment(purchaseManager)
+            .tint(accentColorOption.color)
+            .preferredColorScheme(colorSchemePreference.colorScheme)
+            #if os(macOS)
+            // `.preferredColorScheme(nil)` alone doesn't reliably force AppKit to re-cascade the
+            // effective appearance to already-materialized NSVisualEffectView-backed surfaces
+            // (e.g. the NavigationSplitView sidebar's vibrancy material) when switching back to
+            // "System" after a concrete Light/Dark choice — they can get stuck on the last
+            // explicit appearance even after NSApp.appearance is updated. `splitView.id(...)`
+            // below forces those surfaces to be fully torn down and recreated, which is what
+            // actually fixes the stale-appearance sidebar; this NSApp.appearance assignment
+            // covers window chrome outside that subtree. `initial: true` applies it at launch too.
+            .onChange(of: colorSchemePreference, initial: true) { _, newValue in
+                NSApp.appearance = newValue.nsAppearance
+            }
+            #endif
+            .task {
+                NotificationManager.requestAuthorizationIfNeeded()
+                NotificationManager.rescheduleAll(for: watches)
+                seedDemoDataIfNeeded()
+                purchaseManager.configure(modelContext: modelContext)
+                await purchaseManager.loadProduct()
+                await purchaseManager.reconcileEntitlementsOnLaunch()
+                #if os(macOS)
+                ScheduledBackupManager.startBackgroundActivityScheduler(context: modelContext)
+                #endif
+                _ = ScheduledBackupManager.performBackupIfDue(context: modelContext)
+            }
+    }
+
+    /// Split out from `body` so `.id(colorSchemePreference)` can force this whole subtree —
+    /// sidebar and detail pane alike — to be fully torn down and rebuilt whenever the preference
+    /// changes, without also restarting `body`'s `.task` (which would needlessly redo one-time
+    /// launch work like notification scheduling and StoreKit reconciliation).
+    private var splitView: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
-                Label(section.rawValue, systemImage: section.systemImage)
-                    .tag(section)
+                Label {
+                    Text(section.rawValue)
+                } icon: {
+                    Image(systemName: section.systemImage)
+                        .foregroundStyle(accentColorOption.color)
+                }
+                .tag(section)
             }
             .navigationTitle("Horology Vault")
             #if os(macOS)
@@ -74,21 +118,7 @@ struct ContentView: View {
                 SettingsView()
             }
         }
-        .environment(purchaseManager)
-        .tint(accentColorOption.color)
-        .preferredColorScheme(colorSchemePreference.colorScheme)
-        .task {
-            NotificationManager.requestAuthorizationIfNeeded()
-            NotificationManager.rescheduleAll(for: watches)
-            seedDemoDataIfNeeded()
-            purchaseManager.configure(modelContext: modelContext)
-            await purchaseManager.loadProduct()
-            await purchaseManager.reconcileEntitlementsOnLaunch()
-            #if os(macOS)
-            ScheduledBackupManager.startBackgroundActivityScheduler(context: modelContext)
-            #endif
-            _ = ScheduledBackupManager.performBackupIfDue(context: modelContext)
-        }
+        .id(colorSchemePreference)
     }
 
     /// First-launch-only: gives a brand-new install something to look at in the read-only demo
@@ -103,11 +133,25 @@ struct ContentView: View {
             referenceNumber: "SAMPLE-001",
             caseDiameterMM: 40,
             lugToLugMM: 47,
-            lugWidthMM: 20
+            lugWidthMM: 20,
+            movementType: .automatic,
+            powerReserveHours: 42
         ))
         modelContext.insert(Entitlements())
     }
 }
+
+#if os(macOS)
+private extension ColorSchemePreference {
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+}
+#endif
 
 #Preview {
     ContentView()

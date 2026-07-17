@@ -19,6 +19,7 @@ struct Horology_Vault_App: App {
             WishlistItem.self,
             WearLog.self,
             ProvenanceDoc.self,
+            WindLog.self,
             CustomServiceCenter.self,
             Entitlements.self,
             ServiceContactOverride.self,

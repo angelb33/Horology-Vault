@@ -25,6 +25,8 @@ struct AddWatchView: View {
     @State private var lugToLugMM: Double?
     @State private var lugWidthMM: Double?
     @State private var purchasePrice: Double?
+    @State private var movementType: MovementType?
+    @State private var powerReserveHours: Double?
 
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
@@ -46,6 +48,8 @@ struct AddWatchView: View {
         _lugWidthMM = State(initialValue: watchToEdit?.lugWidthMM)
         _photoData = State(initialValue: watchToEdit?.photoData)
         _purchasePrice = State(initialValue: watchToEdit?.purchasePrice)
+        _movementType = State(initialValue: watchToEdit?.movementType)
+        _powerReserveHours = State(initialValue: watchToEdit?.powerReserveHours)
     }
 
     private var canSave: Bool {
@@ -56,10 +60,19 @@ struct AddWatchView: View {
             && (lugWidthMM ?? 0) > 0
     }
 
+    /// `powerReserveHours` only means something for movements that actually hold a wind —
+    /// clears it out if the user switches away from Manual/Automatic rather than leaving a
+    /// stale value hidden on the record.
+    private var effectivePowerReserveHours: Double? {
+        guard movementType == .manual || movementType == .automatic else { return nil }
+        return powerReserveHours
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 detailsSection
+                movementSection
                 complicationsSection
                 measurementsSection
                 photoSection
@@ -118,6 +131,33 @@ struct AddWatchView: View {
             }
         } header: {
             SectionHeader("Details")
+        }
+    }
+
+    private var movementSection: some View {
+        Section {
+            Picker("Movement Type", selection: $movementType) {
+                Text("Not Set").tag(MovementType?.none)
+                ForEach(MovementType.allCases) { type in
+                    Text(type.rawValue).tag(MovementType?.some(type))
+                }
+            }
+            if movementType == .manual || movementType == .automatic {
+                LabeledContent("Power Reserve") {
+                    HStack(spacing: 4) {
+                        TextField("0", value: $powerReserveHours, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .frame(maxWidth: 80)
+                        Text("hours")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            SectionHeader("Movement")
         }
     }
 
@@ -203,6 +243,8 @@ struct AddWatchView: View {
             watchToEdit.lugWidthMM = lugWidthMM ?? 0
             watchToEdit.photoData = photoData
             watchToEdit.purchasePrice = purchasePrice
+            watchToEdit.movementType = movementType
+            watchToEdit.powerReserveHours = effectivePowerReserveHours
             targetWatch = watchToEdit
         } else {
             let watch = Watch(
@@ -214,7 +256,9 @@ struct AddWatchView: View {
                 lugToLugMM: lugToLugMM ?? 0,
                 lugWidthMM: lugWidthMM ?? 0,
                 photoData: photoData,
-                purchasePrice: purchasePrice
+                purchasePrice: purchasePrice,
+                movementType: movementType,
+                powerReserveHours: effectivePowerReserveHours
             )
             modelContext.insert(watch)
             targetWatch = watch

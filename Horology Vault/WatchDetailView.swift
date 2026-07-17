@@ -34,6 +34,7 @@ struct WatchDetailView: View {
             strapsSection
             serviceHistorySection
             wearLogSection
+            powerReserveSection
             provenanceSection
             fitPreviewSection
         }
@@ -188,6 +189,51 @@ struct WatchDetailView: View {
 
     private func logWearToday() {
         let entry = WearLog(watch: watch)
+        modelContext.insert(entry)
+    }
+
+    @ViewBuilder
+    private var powerReserveSection: some View {
+        if watch.movementType == .manual || watch.movementType == .automatic {
+            Section {
+                Button("Wind Watch") { logWindNow() }
+
+                powerReserveStatus
+
+                ForEach(watch.windLogs.sorted(by: { $0.dateWound > $1.dateWound })) { entry in
+                    Text(entry.dateWound.formatted(date: .abbreviated, time: .shortened))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                SectionHeader("Power Reserve")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var powerReserveStatus: some View {
+        if watch.powerReserveHours == nil {
+            Text("Set a power reserve in Edit Watch to track when this watch runs down.")
+                .foregroundStyle(.secondary)
+        } else if let expiresAt = watch.powerReserveExpiresAt {
+            if watch.isPowerReserveDepleted {
+                Text("Power reserve ran out \(expiresAt.formatted(.relative(presentation: .named)))")
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Reserve runs out \(expiresAt.formatted(.relative(presentation: .named)))")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Text(watch.movementType == .automatic
+                 ? "Log a wind or wear it to start tracking power reserve."
+                 : "Log a wind to start tracking power reserve.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func logWindNow() {
+        let entry = WindLog(watch: watch)
         modelContext.insert(entry)
     }
 

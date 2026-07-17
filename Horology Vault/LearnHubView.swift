@@ -66,12 +66,14 @@ struct LearnHubView: View {
 private struct LearnTopicRow: View {
     let topic: LearnTopic
 
+    @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+
     var body: some View {
         NavigationLink(value: topic) {
             HStack(spacing: 12) {
                 Image(systemName: topic.displaySystemImage)
                     .font(.title3)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(accentColorOption.color)
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -145,14 +147,16 @@ private struct LearnTopicDetailView: View {
 private struct CategoryChip: View {
     let category: LearnCategory
 
+    @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+
     var body: some View {
         Label(category.rawValue, systemImage: category.systemImage)
             .font(.footnote.weight(.medium))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(accentColorOption.color)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.3)))
+            .background(accentColorOption.color.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(accentColorOption.color.opacity(0.3)))
     }
 }
 
@@ -160,6 +164,8 @@ private struct CategoryChip: View {
 /// user just read about a complication and this shows it's literally on their wrist.
 private struct InYourVaultCard: View {
     let watches: [Watch]
+
+    @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
 
     private var countText: String {
         watches.count == 1
@@ -171,7 +177,7 @@ private struct InYourVaultCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("In Your Vault", systemImage: "star.fill")
                 .font(.headline)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(accentColorOption.color)
 
             Text(countText)
                 .font(.footnote)
@@ -207,8 +213,8 @@ private struct InYourVaultCard: View {
             }
         }
         .padding(16)
-        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.accentColor.opacity(0.3)))
+        .background(accentColorOption.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(accentColorOption.color.opacity(0.3)))
         .accessibilityElement(children: .combine)
     }
 }

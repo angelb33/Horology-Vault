@@ -22,7 +22,6 @@ struct VaultGridView: View {
     @Query private var watches: [Watch]
     @State private var sortOption: SortOption = .brand
     @State private var isAddingWatch = false
-    @State private var watchPendingDeletion: Watch?
 
     private let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
 
@@ -58,8 +57,10 @@ struct VaultGridView: View {
                                     Button("Log Today", systemImage: "checkmark.circle") {
                                         logWearToday(for: watch)
                                     }
-                                    Button("Delete", systemImage: "trash", role: .destructive) {
-                                        watchPendingDeletion = watch
+                                    if watch.movementType == .manual || watch.movementType == .automatic {
+                                        Button("Wind Watch", systemImage: "arrow.clockwise.circle") {
+                                            logWindNow(for: watch)
+                                        }
                                     }
                                 }
                             }
@@ -109,22 +110,6 @@ struct VaultGridView: View {
             .sheet(isPresented: $isAddingWatch) {
                 AddWatchView()
             }
-            .confirmationDialog(
-                "Delete \(watchPendingDeletion?.brand ?? "") \(watchPendingDeletion?.model ?? "")?",
-                isPresented: Binding(
-                    get: { watchPendingDeletion != nil },
-                    set: { isPresented in if !isPresented { watchPendingDeletion = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let watch = watchPendingDeletion {
-                        NotificationManager.cancelServiceDueReminder(for: watch)
-                        modelContext.delete(watch)
-                    }
-                    watchPendingDeletion = nil
-                }
-            }
         }
     }
 
@@ -133,6 +118,14 @@ struct VaultGridView: View {
     /// there.
     private func logWearToday(for watch: Watch) {
         let entry = WearLog(watch: watch)
+        modelContext.insert(entry)
+    }
+
+    /// Quicker access to Power Reserve's "Wind Watch" action (normally reached via
+    /// `WatchDetailView`'s Power Reserve section) directly from the Vault grid's context menu,
+    /// same insert as `logWindNow()` there.
+    private func logWindNow(for watch: Watch) {
+        let entry = WindLog(watch: watch)
         modelContext.insert(entry)
     }
 

@@ -18,7 +18,7 @@ struct WatchModelTests {
 
     private func makeInMemoryContext() throws -> ModelContext {
         let container = try ModelContainer(
-            for: Watch.self, Strap.self, ServiceRecord.self, WearLog.self, ProvenanceDoc.self,
+            for: Watch.self, Strap.self, ServiceRecord.self, WearLog.self, ProvenanceDoc.self, WindLog.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)
@@ -182,6 +182,88 @@ struct WatchModelTests {
         #expect(watch.costPerWear == 250)
     }
 
+    // MARK: - lastPoweredDate / powerReserveExpiresAt / isPowerReserveDepleted
+
+    @Test("With no movementType set, lastPoweredDate is nil regardless of logs")
+    func lastPoweredDateIsNilWithNoMovementType() {
+        let watch = makeWatch()
+        watch.windLogs = [WindLog(dateWound: .now)]
+        watch.wearLogs = [WearLog(dateWorn: .now)]
+        #expect(watch.lastPoweredDate == nil)
+    }
+
+    @Test("For a manual movement, lastPoweredDate only considers WindLog entries, not WearLog")
+    func lastPoweredDateForManualIgnoresWearLogs() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        let wound = Date(timeIntervalSince1970: 1_000)
+        watch.windLogs = [WindLog(dateWound: wound)]
+        watch.wearLogs = [WearLog(dateWorn: Date(timeIntervalSince1970: 5_000))]
+        #expect(watch.lastPoweredDate == wound)
+    }
+
+    @Test("For an automatic movement, lastPoweredDate is the more recent of the last wind or the last wear")
+    func lastPoweredDateForAutomaticUsesMostRecentOfWindOrWear() {
+        let watch = makeWatch()
+        watch.movementType = .automatic
+
+        let earlierWind = Date(timeIntervalSince1970: 1_000)
+        let laterWear = Date(timeIntervalSince1970: 5_000)
+        watch.windLogs = [WindLog(dateWound: earlierWind)]
+        watch.wearLogs = [WearLog(dateWorn: laterWear)]
+        #expect(watch.lastPoweredDate == laterWear)
+
+        let laterWind = Date(timeIntervalSince1970: 9_000)
+        watch.windLogs = [WindLog(dateWound: laterWind)]
+        #expect(watch.lastPoweredDate == laterWind)
+    }
+
+    @Test("For a quartz movement, lastPoweredDate is always nil")
+    func lastPoweredDateForQuartzIsAlwaysNil() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        watch.windLogs = [WindLog(dateWound: .now)]
+        watch.wearLogs = [WearLog(dateWorn: .now)]
+        #expect(watch.lastPoweredDate == nil)
+    }
+
+    @Test("powerReserveExpiresAt is nil when powerReserveHours isn't set, even with a wind logged")
+    func powerReserveExpiresAtIsNilWithoutPowerReserveHours() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: .now)]
+        #expect(watch.powerReserveExpiresAt == nil)
+        #expect(watch.isPowerReserveDepleted == false)
+    }
+
+    @Test("powerReserveExpiresAt is lastPoweredDate plus powerReserveHours converted to seconds")
+    func powerReserveExpiresAtAddsHoursToLastPoweredDate() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        let wound = Date(timeIntervalSince1970: 0)
+        watch.windLogs = [WindLog(dateWound: wound)]
+        watch.powerReserveHours = 42
+        #expect(watch.powerReserveExpiresAt == wound.addingTimeInterval(42 * 3600))
+    }
+
+    @Test("A watch is power-reserve depleted once now is past powerReserveExpiresAt")
+    func isPowerReserveDepletedWhenPastExpiration() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -50, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(watch.isPowerReserveDepleted == true)
+    }
+
+    @Test("A watch is not power-reserve depleted while still within its reserve window")
+    func isPowerReserveDepletedFalseWithinWindow() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -2, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(watch.isPowerReserveDepleted == false)
+    }
+
     // MARK: - Cascade delete: ServiceRecord, WearLog, ProvenanceDoc
 
     @Test("Deleting a Watch cascade-deletes its ServiceRecords")
@@ -217,6 +299,21 @@ struct WatchModelTests {
         #expect(try context.fetch(FetchDescriptor<WearLog>()).isEmpty)
     }
 
+    @Test("Deleting a Watch cascade-deletes its WindLogs")
+    func deletingWatchCascadeDeletesWindLogs() throws {
+        let context = try makeInMemoryContext()
+        let watch = makeWatch()
+        context.insert(watch)
+        watch.windLogs = [WindLog(dateWound: .now, watch: watch)]
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<WindLog>()).count == 1)
+
+        context.delete(watch)
+        try context.save()
+
+        #expect(try context.fetch(FetchDescriptor<WindLog>()).isEmpty)
+    }
+
     @Test("Deleting a Watch cascade-deletes its ProvenanceDocs")
     func deletingWatchCascadeDeletesProvenanceDocs() throws {
         let context = try makeInMemoryContext()
@@ -234,7 +331,7 @@ struct WatchModelTests {
         #expect(try context.fetch(FetchDescriptor<ProvenanceDoc>()).isEmpty)
     }
 
-    @Test("Deleting a Watch with all four relationship kinds attached cascades three and nullifies the strap in one shot")
+    @Test("Deleting a Watch with all five relationship kinds attached cascades four and nullifies the strap in one shot")
     func deletingWatchCascadesAllChildrenTogether() throws {
         let context = try makeInMemoryContext()
         let watch = makeWatch()
@@ -246,6 +343,7 @@ struct WatchModelTests {
         watch.serviceRecords = [ServiceRecord(datePerformed: .now, serviceType: "Service", accuracyDeltaSPD: 0, watch: watch)]
         watch.wearLogs = [WearLog(dateWorn: .now, watch: watch)]
         watch.provenanceDocs = [ProvenanceDoc(docType: .warranty, fileData: Data(), watch: watch)]
+        watch.windLogs = [WindLog(dateWound: .now, watch: watch)]
         try context.save()
 
         context.delete(watch)
@@ -254,6 +352,7 @@ struct WatchModelTests {
         #expect(try context.fetch(FetchDescriptor<ServiceRecord>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<WearLog>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<ProvenanceDoc>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<WindLog>()).isEmpty)
 
         // The strap itself must survive — only its back-reference is nullified.
         let straps = try context.fetch(FetchDescriptor<Strap>())

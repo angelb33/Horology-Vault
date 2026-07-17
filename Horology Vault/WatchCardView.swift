@@ -33,6 +33,16 @@ struct WatchCardView: View {
                         .padding(6)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if watch.isPowerReserveDepleted {
+                    Image(systemName: "gauge.with.needle")
+                        .font(.caption)
+                        .padding(6)
+                        .background(.red, in: Circle())
+                        .foregroundStyle(.white)
+                        .padding(6)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(watch.brand)
