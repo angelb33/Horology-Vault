@@ -127,20 +127,34 @@ silently stuck on default blue regardless of the user's Settings accent-color ch
 **Also this session, still UNVERIFIED as of 2026-07-17 — needs a user retest before being treated as
 resolved:** a real appearance bug where switching Appearance from Light to System (with the Mac itself in
 Dark mode) left some surfaces, notably the sidebar, stuck showing light-mode styling instead of following
-the system. A first fix (explicitly setting `NSApp.appearance` in a new `.onChange(of: colorSchemePreference,
-initial: true)` in `ContentView.swift`) did not fully resolve it per the user's own retest. A follow-up fix
-is now also in place: `ContentView.body` was split so the `NavigationSplitView` lives in a new `splitView`
-computed property carrying `.id(colorSchemePreference)`, forcing SwiftUI to fully tear down and rebuild that
-subtree (not just repaint it) on every preference change, while `.task` (notification scheduling, StoreKit
-reconciliation, demo-data seeding) stays outside that `.id()`'d subtree so it doesn't needlessly re-run on
-every appearance toggle. Both fixes are in place together (belt-and-suspenders); both platforms build clean,
-but **the user has not yet confirmed whether this actually fixes the reported bug — treat it as unverified,
-not done, until retested.** Separately, a V2 CloudKit Sync phase (a Phase 15 candidate, tentatively) was
+the system. Two fix attempts (explicitly setting `NSApp.appearance` in a new `.onChange(of:
+colorSchemePreference, initial: true)`, then splitting `ContentView.body` so the `NavigationSplitView` lived
+in a `splitView` computed property carrying `.id(colorSchemePreference)` to force a full subtree rebuild)
+were both in place together and the user retested and confirmed the bug **still happened**. Root cause
+found afterward: `.preferredColorScheme(nil)` itself (the `.system` case's mapping) has a long-standing
+SwiftUI/AppKit bug on macOS where `nil` doesn't reliably re-enable system-appearance tracking once a window
+has had an explicit override — the stuck state lives on the `NSWindow`/its vibrancy material, not the
+SwiftUI view tree, which is why neither prior fix could reach it. **Third fix, also still unverified:**
+`ContentView` now never passes `nil` to `.preferredColorScheme` on macOS — a new `SystemAppearanceObserver`
+(`@Observable`, KVO on `NSApplication.effectiveAppearance`, defined at the bottom of `ContentView.swift`)
+tracks the real OS appearance and `ContentView.effectiveColorScheme` resolves `.system` to that concrete
+value instead; the now-pointless `.id(colorSchemePreference)` rebuild was removed. See the "Known issue"
+bullet near the end of this file for full detail — **treat this as unverified until the user retests.**
+Separately, a V2 CloudKit Sync phase (a Phase 15 candidate, tentatively) was
 discussed and scoped in detail this session but **not implemented** — no code was written. Worth
 referencing if picked up later: it needs manual iCloud capability setup in Xcode (no `.entitlements` file
 exists in this project yet), schema changes across most `@Model`s (CloudKit requires default values on every
 property), and `Entitlements` should stay in a separate, non-CloudKit-synced `ModelConfiguration` to avoid a
 duplicate-row risk across multiple devices sharing one iCloud account.
+A follow-up to the Winding Log feature shipped later, still 2026-07-17: Insights gained a 6th trend card,
+**Power Reserve** (`PowerReserveChartView.swift`, modeled directly on `ServiceStatusChartView.swift`) —
+a bar chart of hours remaining (or overdue, shown red) until each manual/automatic watch's mainspring runs
+down, derived straight from the already-tested `Watch.powerReserveExpiresAt`. Quartz watches and any watch
+missing a `movementType`/`powerReserveHours` spec are excluded from the chart, same scope cut as the rest of
+Winding Log. Wired into `DashboardView` after the Cost per Wear card; inherits the existing Insights paywall
+automatically, no new gating code, same pattern as Cost per Wear's addition. No new tests were added — the
+chart is pure presentation over `powerReserveExpiresAt`/`isPowerReserveDepleted`, which the Phase 14 test
+batch already covers. Both platforms build clean.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
@@ -348,6 +362,12 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   entered); `costPerWear` itself is deliberately not shown there, staying Insights-exclusive by design, so
   the paywall keeps meaning something. `purchasePrice` round-trips through the encrypted backup but is
   intentionally excluded from CSV export/import — see `DataBackupManager.swift`'s CSV section comment.
+  **Power Reserve joined Insights as a 6th card, 2026-07-17** (see the Winding Log bullet below for the
+  underlying model): `PowerReserveChartView.swift` (modeled on `ServiceStatusChartView.swift`) charts hours
+  remaining/overdue until each manual/automatic watch's mainspring depletes, from `Watch.powerReserveExpiresAt`;
+  quartz watches and watches without a movement/power-reserve spec are excluded. Same paywall-inheritance
+  pattern as Cost per Wear — no new gating code, no new tests (pure presentation over already-tested
+  computed properties).
   **Scheduled Backup joined Insights as gated, 2026-07-15** (see below) — manual export/backup remains free regardless.
   `KeychainHelper.swift` (a static-only enum, no view) wraps Keychain Services
   (`SecItemAdd`/`SecItemCopyMatching`/`SecItemUpdate`/`SecItemDelete`) to store/read/delete the scheduled
@@ -463,19 +483,26 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   clear can't touch. Next step: retry after a full Mac restart (force-kills/restarts the daemon); if
   `ASDErrorDomain 825` persists even then, treat iOS Simulator as the primary target for purchase-flow
   testing going forward rather than macOS-native StoreKit Testing.
-- **Known issue (open/UNVERIFIED as of 2026-07-17): appearance switching may still get stuck on the wrong
-  color scheme.** Reported bug: switching Settings' Appearance preference from Light to System, with the
-  Mac's own system appearance set to Dark, left some surfaces — notably the `NavigationSplitView` sidebar —
-  visibly stuck in light-mode styling instead of following the system. First fix attempt (explicitly
-  assigning `NSApp.appearance` from a new `.onChange(of: colorSchemePreference, initial: true)` in
-  `ContentView.swift`) did **not** fully resolve it per the user's own retest ("it still happens"). A
-  follow-up fix is now also in place: `ContentView.body` was refactored to move the `NavigationSplitView`
-  into a new `splitView` computed property with `.id(colorSchemePreference)` attached, forcing SwiftUI to
-  fully tear down and rebuild that whole subtree (not just repaint it) on every preference change, while
-  `.task` (notification scheduling, StoreKit reconciliation, demo-data seeding) stays outside that `.id()`'d
-  subtree so those one-time launch operations don't needlessly rerun on every appearance toggle. Both fixes
-  are in place together, and both macOS/iOS builds are clean — **but the user has not yet retested whether
-  this actually fixes the reported bug.** Treat this as unverified, not resolved, until confirmed; if it
-  still reproduces, the next thing to check is whether `NSVisualEffectView`-backed sidebar vibrancy material
-  specifically needs a more targeted fix (e.g. forcing the effect view's `appearance` property directly)
-  rather than relying on either `.preferredColorScheme` or a view-identity reset.
+- **Known issue (open/UNVERIFIED as of 2026-07-17, third fix attempt in place): appearance switching may
+  still get stuck on the wrong color scheme.** Reported bug: switching Settings' Appearance preference from
+  Light to System, with the Mac's own system appearance set to Dark, left some surfaces — notably the
+  `NavigationSplitView` sidebar — visibly stuck in light-mode styling instead of following the system. Two
+  earlier fix attempts (an explicit `NSApp.appearance` assignment via `.onChange(of: colorSchemePreference,
+  initial: true)`, then a `splitView.id(colorSchemePreference)` forced-subtree-rebuild) were both in place
+  together and the user retested and confirmed the bug **still happened** — ruling out both theories (window
+  chrome appearance, and stale SwiftUI view identity). Root cause identified 2026-07-17: `.preferredColorScheme(nil)`
+  itself is the culprit — `ColorSchemePreference.colorScheme` returns `nil` for `.system` (see
+  `SettingsView.swift`), and there's a long-standing SwiftUI/AppKit bug where once a window's appearance has
+  been explicitly overridden (Light or Dark), passing `nil` later does not reliably revert it to tracking
+  the OS appearance; the stuck state lives on the `NSWindow`/its `NSVisualEffectView` vibrancy material
+  itself, which is exactly why neither the `NSApp.appearance` fix nor the `.id()` view-identity reset could
+  touch it. **Third fix (in place, not yet user-retested):** `ContentView` never passes `nil` to
+  `.preferredColorScheme` on macOS anymore. A new `SystemAppearanceObserver` (`@Observable`, defined at the
+  bottom of `ContentView.swift` in the `#if os(macOS)` block) tracks the real OS appearance via KVO on
+  `NSApplication.effectiveAppearance` (Apple-documented as observable) and exposes it as a concrete
+  `ColorScheme`. `ContentView.effectiveColorScheme` resolves `.system` to that observed value instead of
+  `nil` (iOS keeps using `ColorSchemePreference.colorScheme`'s `nil` fallback unchanged, since this bug is
+  macOS-specific). The now-unnecessary `splitView.id(colorSchemePreference)` forced-rebuild was removed as
+  part of this fix since it no longer serves a purpose. Both macOS and iOS Simulator builds are clean and
+  the full unit test suite passes — **the user has not yet retested whether this third attempt actually
+  fixes the reported bug; treat it as unverified, not resolved, until confirmed.**

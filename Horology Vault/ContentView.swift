@@ -46,21 +46,38 @@ struct ContentView: View {
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
     @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+    #if os(macOS)
+    @State private var systemAppearanceObserver = SystemAppearanceObserver()
+    #endif
+
+    /// Never resolves to `nil` on macOS, even for `.system`. `.preferredColorScheme(nil)` has a
+    /// long-standing SwiftUI/AppKit bug: once a window's appearance has been explicitly overridden
+    /// (Light or Dark), passing `nil` later does not reliably revert it to tracking the OS
+    /// appearance — surfaces like the NavigationSplitView sidebar's NSVisualEffectView vibrancy
+    /// material can get stuck on the last explicit appearance. Neither a direct `NSApp.appearance`
+    /// assignment nor an `.id()`-forced subtree rebuild (both tried previously) fixed this, because
+    /// the stuck state lives on the NSWindow itself, not the SwiftUI view identity. The fix is to
+    /// never pass `nil`: track the real system appearance ourselves via KVO on
+    /// `NSApp.effectiveAppearance` (Apple-documented as observable) and always feed
+    /// `.preferredColorScheme` a concrete value.
+    private var effectiveColorScheme: ColorScheme? {
+        #if os(macOS)
+        switch colorSchemePreference {
+        case .system: systemAppearanceObserver.colorScheme
+        case .light: .light
+        case .dark: .dark
+        }
+        #else
+        colorSchemePreference.colorScheme
+        #endif
+    }
 
     var body: some View {
         splitView
             .environment(purchaseManager)
             .tint(accentColorOption.color)
-            .preferredColorScheme(colorSchemePreference.colorScheme)
+            .preferredColorScheme(effectiveColorScheme)
             #if os(macOS)
-            // `.preferredColorScheme(nil)` alone doesn't reliably force AppKit to re-cascade the
-            // effective appearance to already-materialized NSVisualEffectView-backed surfaces
-            // (e.g. the NavigationSplitView sidebar's vibrancy material) when switching back to
-            // "System" after a concrete Light/Dark choice — they can get stuck on the last
-            // explicit appearance even after NSApp.appearance is updated. `splitView.id(...)`
-            // below forces those surfaces to be fully torn down and recreated, which is what
-            // actually fixes the stale-appearance sidebar; this NSApp.appearance assignment
-            // covers window chrome outside that subtree. `initial: true` applies it at launch too.
             .onChange(of: colorSchemePreference, initial: true) { _, newValue in
                 NSApp.appearance = newValue.nsAppearance
             }
@@ -79,10 +96,10 @@ struct ContentView: View {
             }
     }
 
-    /// Split out from `body` so `.id(colorSchemePreference)` can force this whole subtree —
-    /// sidebar and detail pane alike — to be fully torn down and rebuilt whenever the preference
-    /// changes, without also restarting `body`'s `.task` (which would needlessly redo one-time
-    /// launch work like notification scheduling and StoreKit reconciliation).
+    /// Split out from `body` purely to keep `body` readable; unlike an earlier version of this
+    /// code, this subtree no longer needs a forced `.id(colorSchemePreference)` rebuild — that
+    /// was working around a stuck-appearance bug that's now fixed at the source by
+    /// `effectiveColorScheme` never passing `nil` to `.preferredColorScheme` on macOS.
     private var splitView: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
@@ -118,7 +135,6 @@ struct ContentView: View {
                 SettingsView()
             }
         }
-        .id(colorSchemePreference)
     }
 
     /// First-launch-only: gives a brand-new install something to look at in the read-only demo
@@ -149,6 +165,30 @@ private extension ColorSchemePreference {
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
         }
+    }
+}
+
+/// Tracks the OS-level Light/Dark appearance via KVO on `NSApplication.effectiveAppearance`
+/// (documented by Apple as observable), so `ContentView` always has a concrete `ColorScheme` to
+/// hand `.preferredColorScheme` — see `ContentView.effectiveColorScheme` for why `nil` is never
+/// used on macOS.
+@Observable
+final class SystemAppearanceObserver {
+    private(set) var colorScheme: ColorScheme
+    private var observation: NSKeyValueObservation?
+
+    init() {
+        colorScheme = Self.resolve(NSApp.effectiveAppearance)
+        observation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
+            let resolved = Self.resolve(app.effectiveAppearance)
+            DispatchQueue.main.async {
+                self?.colorScheme = resolved
+            }
+        }
+    }
+
+    private static func resolve(_ appearance: NSAppearance) -> ColorScheme {
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     }
 }
 #endif

@@ -30,7 +30,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		0B78E1FF3001925B000C3DF4 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		0B78E1FF3001925B000C3DF4 /* Exceptions for "Horology Vault" folder in "Horology Vault" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"Info-iOS-BackgroundTasks.plist",
@@ -43,7 +43,7 @@
 		0B78E11030019259000C3DF4 /* Horology Vault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				0B78E1FF3001925B000C3DF4 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				0B78E1FF3001925B000C3DF4 /* Exceptions for "Horology Vault" folder in "Horology Vault" target */,
 			);
 			path = "Horology Vault";
 			sourceTree = "<group>";
