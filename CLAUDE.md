@@ -710,6 +710,13 @@ it from wherever else it was worn; Service History's footer notes a quartz batte
 as a "Battery Replacement" entry; Power Reserve's footer branches on `movementType` to mention that wearing
 an automatic also recharges it). Reminders and Maintenance sections were left untouched since they already
 had footers. Pure copy change, no logic touched — both platforms build clean, no new tests needed.
+**Open item raised by the user for a future session, not yet scoped or started:** revisit this app's
+reminder naming conventions — specifically, the user feels "Wind Reminder" may not be an intuitive name for
+what it does (it's named after the winding action itself, not the outcome it warns about) and wants to
+discuss making it clearer. No specific alternative name or scope was given; this is a discussion topic to
+open next session, not a spec to implement from. Note there are now four reminder types in play (Service
+Due, Wind Reminder, Power Reserve Depleted, Pickup Reminder) — worth considering whether any renaming should
+look at all four together for consistency, not just Wind Reminder in isolation.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

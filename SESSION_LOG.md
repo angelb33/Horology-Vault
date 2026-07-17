@@ -1,5 +1,63 @@
 # Session Log
 
+## 2026-07-17 — Session 10
+
+### Accomplished this session
+
+- **Added a 4th reminder type, "Power Reserve Depleted"** — fires at the exact moment a manual/automatic
+  watch's power reserve actually runs out, distinct from the existing "Wind Reminder" (which fires *ahead*
+  of time, based on a user-set lead time, and does nothing if that lead time was never set). Premium-gated,
+  same two-layer toggle pattern already established for Service Due/Wind Reminder (a global Settings master
+  switch plus a per-watch override). `NotificationManager` gained a pure `resolvedPowerReserveDepletedDate`
+  function (6 new test cases mirroring `resolvedWindReminderDate`'s shape) plus
+  `schedulePowerReserveDepletedReminder`/`cancelPowerReserveDepletedReminder`, wired into `rescheduleAll`.
+  `Watch` gained `isPowerReserveDepletedReminderEnabled: Bool?`. UI landed in `WatchDetailView`'s Reminders
+  section (new toggle + a refactored, `joined(separator:)`-based "which master switch is off" footer that
+  scales past two switches) and in `SettingsView`'s matching global toggle. `DataBackupManager`'s
+  `WatchBackup` DTO was extended immediately so the new field round-trips through encrypted backups, same
+  discipline as every prior field addition this project has made.
+- **Added footer descriptions to the 9 `WatchDetailView` ("the Workbench") Form sections that were missing
+  one**: Overview, Specifications, Condition & Documentation, Straps, Service History, Wear Log, Power
+  Reserve, Provenance, Fit Preview — matching the footer pattern already used elsewhere in the app
+  (`SettingsView`, `AddWatchView`, and `WatchDetailView`'s own Reminders/Maintenance sections, which already
+  had one). Pure copy change, no logic touched.
+- Both changes verified: macOS build clean, iOS Simulator (`iPhone 17`) build clean, full unit test suite
+  passes. `CLAUDE.md` was updated inline with detailed narrative paragraphs for both during the session
+  (already done prior to this close, not a pending doc task).
+- Committed as `58febbb` ("Add Power Reserve Depleted reminder (premium); add Workbench section footer
+  descriptions") and pushed to `origin/main` (`2a08f95..58febbb main -> main`).
+
+### Pending / next steps
+
+- **TOP PRIORITY — new discussion topic for next session, requested explicitly by the user:** revisit this
+  app's reminder naming conventions, specifically whether **"Wind Reminder" is an intuitive name**. The user
+  feels it may not clearly communicate what the reminder actually does (it's named after the winding
+  action, not the outcome — running low on power reserve — that it warns about). No specific alternative or
+  scope was given; this is an open discussion to have at the start of next session, not a spec to implement
+  from yet. Worth considering all four reminder types together for naming consistency (Service Due, Wind
+  Reminder, Power Reserve Depleted, Pickup Reminder), not just Wind Reminder in isolation, since a rename
+  touches UI copy in `SettingsView`, `WatchDetailView`'s Reminders section, and `AddWatchView`'s Movement
+  section footer. Flagged in `CLAUDE.md`'s Project State narrative too, right after the Power Reserve
+  Depleted / footer paragraphs.
+- **`SESSION_LOG.md` has an unlogged gap worth reconciling if the user wants this file kept complete:** 8
+  commits landed between Session 9's milestone commit (`4704f3b`) and this entry without their own session
+  entries — `879571f` (Power Reserve Insights chart, appearance-fix attempt 3), `3c2b93d` (gating Service
+  Due/Wind behind lifetime unlock with per-watch overrides), `55ebbcf` (premium power reserve bar on Vault
+  cards, wind-reminder lead-time validation), `771dc77` (10 collector/insurance fields, Depleted Watches
+  insight, a real backup data-loss bug fix), `7ddcc97` (out-for-maintenance tracking, Vault search,
+  app-wide CRUD symmetry pass), `2a08f95` (free Notifications panel), `0ed35d8` (NotificationManager gating
+  test coverage), `0fc5973` (foreground-notification delegate fix, iOS panel-dismissal fix). All of this
+  work is already documented in detail in `CLAUDE.md`'s Project State narrative (each has its own paragraph)
+  — it just was never broken out into matching `SESSION_LOG.md` entries. Not backfilled as part of this
+  close since it wasn't requested and reconstructing 8 sessions' worth of entries from the `CLAUDE.md`
+  narrative is a substantial task in its own right — flagging so a future close can decide whether it's
+  worth doing.
+- Longstanding open items carried forward, unchanged this session: the appearance-switching fix (3rd
+  attempt, still **unverified** — see `CLAUDE.md`'s "Known issue" bullet), the macOS-native StoreKit
+  `ASDErrorDomain 825` purchase failure, V2 CloudKit Sync (scoped conversationally, not built), and the
+  standing sandbox limitation that no new UI in this project has been visually confirmed in Xcode's
+  Canvas/Simulator from inside a session.
+
 ## 2026-07-17 — Session 9
 
 ### Accomplished this session
