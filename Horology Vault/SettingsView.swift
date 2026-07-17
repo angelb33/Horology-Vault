@@ -19,6 +19,7 @@ struct SettingsView: View {
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
     @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
+    @AppStorage("isPowerReserveBarEnabled") private var isPowerReserveBarEnabled = true
 
     @AppStorage(NotificationManager.isServiceDueReminderEnabledKey) private var isServiceDueReminderEnabled = true
     @AppStorage(NotificationManager.isWindReminderEnabledKey) private var isWindReminderEnabled = true
@@ -47,6 +48,7 @@ struct SettingsView: View {
     @AppStorage(ScheduledBackupManager.folderBookmarkKey) private var scheduledBackupFolderBookmark: Data?
     @State private var isPickingBackupFolder = false
     @State private var hasStoredBackupPassphrase = false
+    @State private var isConfirmingPassphraseRemoval = false
 
     var body: some View {
         NavigationStack {
@@ -180,6 +182,18 @@ struct SettingsView: View {
             } message: {
                 Text(statusMessage ?? "")
             }
+            .confirmationDialog(
+                "Remove Stored Passphrase?",
+                isPresented: $isConfirmingPassphraseRemoval,
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) {
+                    KeychainHelper.deletePassphrase()
+                    hasStoredBackupPassphrase = false
+                }
+            } message: {
+                Text("Scheduled Backup won't be able to run automatically again until you set a new passphrase.")
+            }
     }
 
     private var passphrasePromptTitle: String {
@@ -268,8 +282,17 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Toggle("Show Power Reserve on Vault Cards", isOn: $isPowerReserveBarEnabled)
         } header: {
             SectionHeader("Appearance")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Power Reserve shows a color-coded bar under each watch's photo in the Vault grid, indicating how much reserve is left before it needs winding.")
+                if !isUnlocked {
+                    Text("This display is a Full Version feature — the toggle above takes effect once unlocked.")
+                }
+            }
         }
     }
 
@@ -417,8 +440,7 @@ struct SettingsView: View {
 
                 if hasStoredBackupPassphrase {
                     Button("Remove Stored Passphrase", role: .destructive) {
-                        KeychainHelper.deletePassphrase()
-                        hasStoredBackupPassphrase = false
+                        isConfirmingPassphraseRemoval = true
                     }
                 }
             } header: {
@@ -497,6 +519,8 @@ struct SettingsView: View {
             }
         } header: {
             SectionHeader("Purchase")
+        } footer: {
+            Text("A one-time purchase, not a subscription — it unlocks Insights, Reminders (Service Due and Wind), and Scheduled Backup permanently on this device. Everything else, including adding watches and manual backups, is already free.")
         }
     }
 

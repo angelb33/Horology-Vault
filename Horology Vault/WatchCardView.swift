@@ -22,6 +22,11 @@ struct WatchCardView: View {
     @Query private var entitlements: [Entitlements]
     @State private var focusPoint: UnitPoint = .center
 
+    // User-facing on/off switch in Settings' Appearance section — same literal-string-key
+    // pattern as `colorSchemePreference`/`accentColorOption` there, since this is a plain
+    // display preference with no dedicated "manager" type to centralize the key on.
+    @AppStorage("isPowerReserveBarEnabled") private var isPowerReserveBarEnabled = true
+
     private var isUnlocked: Bool {
         entitlements.first?.isLifetimeUnlocked ?? false
     }
@@ -29,47 +34,77 @@ struct WatchCardView: View {
     /// The power reserve bar is a full-version-only upgrade over the free depleted/not-depleted
     /// badge (see `WatchCardView`'s badge overlay below) — free users keep exactly what they have
     /// today rather than losing the badge until they unlock, matching how every other paid
-    /// feature in this app is scoped as additive, never a regression.
+    /// feature in this app is scoped as additive, never a regression. Also respects the user's
+    /// own Settings toggle — turning it off falls back to the same depleted badge free users see,
+    /// rather than just hiding an otherwise-still-reserved bar.
     private var showsPowerReserveBar: Bool {
-        isUnlocked && watch.powerReserveRemainingFraction != nil
+        isUnlocked && isPowerReserveBarEnabled && watch.powerReserveRemainingFraction != nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                photo
-                if watch.isServiceDue {
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.caption)
-                        .padding(6)
-                        .background(.orange, in: Circle())
-                        .foregroundStyle(.white)
-                        .padding(6)
+            photoSquare
+                .overlay(alignment: .topTrailing) {
+                    // A watch already checked in for maintenance doesn't need a "service due"
+                    // nag too — the maintenance badge takes precedence over showing both.
+                    if watch.isOutForMaintenance {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.caption)
+                            .padding(6)
+                            .background(.blue, in: Circle())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    } else if watch.isServiceDue {
+                        Image(systemName: "wrench.and.screwdriver.fill")
+                            .font(.caption)
+                            .padding(6)
+                            .background(.orange, in: Circle())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                // Once unlocked, the bar below already conveys "depleted" (empty, red) more
-                // informatively than this binary badge, so it steps aside rather than doubling up.
-                if !showsPowerReserveBar && watch.isPowerReserveDepleted {
-                    Image(systemName: "gauge.with.needle")
-                        .font(.caption)
-                        .padding(6)
-                        .background(.red, in: Circle())
-                        .foregroundStyle(.white)
-                        .padding(6)
+                .overlay(alignment: .topLeading) {
+                    // Once unlocked, the bar below already conveys "depleted" (empty, red) more
+                    // informatively than this binary badge, so it steps aside rather than doubling up.
+                    if !showsPowerReserveBar && watch.isPowerReserveDepleted {
+                        Image(systemName: "gauge.with.needle")
+                            .font(.caption)
+                            .padding(6)
+                            .background(.red, in: Circle())
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
                 }
-            }
 
-            if showsPowerReserveBar, let fraction = watch.powerReserveRemainingFraction {
-                PowerReserveBarView(fraction: fraction)
+            // Reserves this row's height even when the current watch has no bar to show
+            // (quartz, no movement type set yet), so a mixed row of mechanical and quartz
+            // watches — or any row at all once more watches are added — stays the same height
+            // instead of the row growing/shrinking to whichever cell happens to have a bar.
+            // Free (not-unlocked) users never see a bar on any card, so nothing is reserved for
+            // them — reserving dead space for a feature they can't see would be worse, not better.
+            // Same reasoning applies when the user has switched the feature off in Settings: the
+            // slot goes away entirely rather than reserving dead space for a hidden feature.
+            if isUnlocked && isPowerReserveBarEnabled {
+                ZStack {
+                    if let fraction = watch.powerReserveRemainingFraction {
+                        PowerReserveBarView(fraction: fraction)
+                    }
+                }
+                .frame(height: 4)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(watch.brand)
                     .font(.headline)
+                    .lineLimit(1)
+                // Reserve 2 lines' worth of height regardless of actual length — without this, a
+                // long model name wrapping to a second line grows that card's cell in the
+                // LazyVGrid, which grows the whole row (rows share height across their cells) and
+                // throws off alignment with shorter, single-line neighbors in the same row.
                 Text(watch.model)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2, reservesSpace: true)
             }
         }
         .task(id: watch.photoData) {
@@ -77,17 +112,29 @@ struct WatchCardView: View {
         }
     }
 
+    /// `Color.clear` sized to a square via `.aspectRatio(1, contentMode: .fit)` — unlike sizing
+    /// the photo/placeholder content directly, this square's size is derived purely from the
+    /// width the `LazyVGrid` column offers, never from leftover space in the card's `VStack`.
+    /// That decoupling is what makes the photo immune to height variance introduced by anything
+    /// else in the card (the power-reserve bar's presence, a wrapped title, a future badge row)
+    /// — the previous approach of applying `.aspectRatio` directly to the image/placeholder let
+    /// row-height changes elsewhere in the grid feed back into the photo's own size.
+    private var photoSquare: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay { photoContent }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     @ViewBuilder
-    private var photo: some View {
+    private var photoContent: some View {
         if let data = watch.photoData,
            let image = platformImage(from: data),
            let pixelSize = uprightPixelSize(from: data) {
             SmartCroppedImage(image: image, pixelSize: pixelSize, focusPoint: focusPoint)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
         } else {
-            RoundedRectangle(cornerRadius: 12)
+            Rectangle()
                 .fill(.quaternary)
-                .aspectRatio(1, contentMode: .fit)
                 .overlay {
                     Image(systemName: "clock")
                         .font(.largeTitle)
@@ -118,9 +165,12 @@ private struct PowerReserveBarView: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(.quaternary)
+                // At fraction 0 this would otherwise be a 0pt-wide fill — technically red per
+                // `tint`, but invisible, so "empty" looked identical to the unfilled gray track.
+                // A small minimum width keeps the red visible right down to fully depleted.
                 Capsule()
                     .fill(tint)
-                    .frame(width: geometry.size.width * fraction)
+                    .frame(width: max(geometry.size.width * fraction, 3))
             }
         }
         .frame(height: 4)

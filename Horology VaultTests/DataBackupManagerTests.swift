@@ -36,6 +36,8 @@ struct DataBackupManagerTests {
         let warrantyDate = Date(timeIntervalSince1970: 2_000_000)
         let appraisalDate = Date(timeIntervalSince1970: 3_000_000)
         let windDate = Date(timeIntervalSince1970: 4_000_000)
+        let dropOffDate = Date(timeIntervalSince1970: 5_000_000)
+        let expectedPickupDate = Date(timeIntervalSince1970: 5_500_000)
 
         let watch = Watch(
             brand: "Omega",
@@ -63,6 +65,9 @@ struct DataBackupManagerTests {
         watch.serviceIntervalYears = 4
         watch.isServiceDueReminderEnabled = false
         watch.isWindReminderEnabled = true
+        watch.maintenanceDropOffDate = dropOffDate
+        watch.maintenanceExpectedPickupDate = expectedPickupDate
+        watch.maintenanceNotes = "Left for full service and movement overhaul"
         sourceContext.insert(watch)
         sourceContext.insert(WindLog(dateWound: windDate, watch: watch))
 
@@ -100,5 +105,9 @@ struct DataBackupManagerTests {
         #expect(restored.appraisalDate == appraisalDate)
         #expect(restored.windLogs.count == 1)
         #expect(restored.windLogs.first?.dateWound == windDate)
+        #expect(restored.maintenanceDropOffDate == dropOffDate)
+        #expect(restored.maintenanceExpectedPickupDate == expectedPickupDate)
+        #expect(restored.maintenanceNotes == "Left for full service and movement overhaul")
+        #expect(restored.isOutForMaintenance == true)
     }
 }

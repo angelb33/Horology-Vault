@@ -23,6 +23,7 @@ struct VaultGridView: View {
     @Query private var entitlements: [Entitlements]
     @State private var sortOption: SortOption = .brand
     @State private var isAddingWatch = false
+    @State private var searchText = ""
 
     private var isUnlocked: Bool {
         entitlements.first?.isLifetimeUnlocked ?? false
@@ -41,6 +42,16 @@ struct VaultGridView: View {
         }
     }
 
+    private var filteredWatches: [Watch] {
+        guard !searchText.isEmpty else { return sortedWatches }
+        return sortedWatches.filter {
+            $0.brand.localizedCaseInsensitiveContains(searchText)
+                || $0.model.localizedCaseInsensitiveContains(searchText)
+                || ($0.referenceNumber?.localizedCaseInsensitiveContains(searchText) ?? false)
+                || ($0.serialNumber?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -50,10 +61,12 @@ struct VaultGridView: View {
                         systemImage: "clock",
                         description: Text("Add a watch to start building your Vault.")
                     )
+                } else if filteredWatches.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
                 } else {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(sortedWatches) { watch in
+                            ForEach(filteredWatches) { watch in
                                 NavigationLink(value: watch) {
                                     WatchCardView(watch: watch)
                                 }
@@ -75,6 +88,7 @@ struct VaultGridView: View {
                 }
             }
             .navigationTitle("Vault")
+            .searchable(text: $searchText, prompt: "Search by brand, model, or reference")
             .navigationDestination(for: Watch.self) { watch in
                 WatchDetailView(watch: watch)
             }

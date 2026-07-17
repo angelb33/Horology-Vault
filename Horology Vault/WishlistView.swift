@@ -14,6 +14,7 @@ struct WishlistView: View {
     private var items: [WishlistItem]
 
     @State private var isAddingItem = false
+    @State private var editingItem: WishlistItem?
 
     var body: some View {
         NavigationStack {
@@ -27,7 +28,7 @@ struct WishlistView: View {
                 } else {
                     List {
                         ForEach(items) { item in
-                            WishlistRow(item: item)
+                            WishlistRow(item: item, onEdit: { editingItem = item })
                         }
                         .onDelete(perform: delete)
                     }
@@ -46,6 +47,9 @@ struct WishlistView: View {
             .sheet(isPresented: $isAddingItem) {
                 AddWishlistItemView()
             }
+            .sheet(item: $editingItem) { item in
+                AddWishlistItemView(itemToEdit: item)
+            }
         }
     }
 
@@ -58,6 +62,7 @@ struct WishlistView: View {
 
 private struct WishlistRow: View {
     let item: WishlistItem
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -83,14 +88,23 @@ private struct WishlistRow: View {
 
             // Price alerts are a V2 (subscription) feature — surfaced here so the row
             // reads complete, but disabled until the backend price-polling ships.
-            Toggle(isOn: .constant(false)) {
-                Label("Price Alert", systemImage: "bell")
-                    .font(.footnote)
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle(isOn: .constant(false)) {
+                    Label("Price Alert", systemImage: "bell")
+                        .font(.footnote)
+                }
+                .disabled(true)
+                Text("Coming in a future update")
+                    .font(.caption2)
             }
-            .disabled(true)
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onEdit)
+        .contextMenu {
+            Button("Edit", systemImage: "pencil", action: onEdit)
+        }
     }
 }
 
@@ -98,10 +112,21 @@ private struct AddWishlistItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var brand = ""
-    @State private var model = ""
+    private let itemToEdit: WishlistItem?
+
+    @State private var brand: String
+    @State private var model: String
     @State private var targetPrice: Double?
-    @State private var notes = ""
+    @State private var notes: String
+    @State private var isConfirmingDelete = false
+
+    init(itemToEdit: WishlistItem? = nil) {
+        self.itemToEdit = itemToEdit
+        _brand = State(initialValue: itemToEdit?.brand ?? "")
+        _model = State(initialValue: itemToEdit?.model ?? "")
+        _targetPrice = State(initialValue: itemToEdit?.targetPrice)
+        _notes = State(initialValue: itemToEdit?.notes ?? "")
+    }
 
     private var canSave: Bool {
         !brand.trimmingCharacters(in: .whitespaces).isEmpty
@@ -137,6 +162,13 @@ private struct AddWishlistItemView: View {
                 } header: {
                     SectionHeader("Notes")
                 }
+                if itemToEdit != nil {
+                    Section {
+                        Button("Delete Wishlist Item", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
+                    }
+                }
             }
             #if os(macOS)
             // The default macOS Form style left-aligns its sections in a narrow
@@ -144,7 +176,7 @@ private struct AddWishlistItemView: View {
             // matches that centered, card-style layout.
             .formStyle(.grouped)
             #endif
-            .navigationTitle("Add to Wishlist")
+            .navigationTitle(itemToEdit == nil ? "Add to Wishlist" : "Edit Wishlist Item")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -157,17 +189,37 @@ private struct AddWishlistItemView: View {
                         .disabled(!canSave)
                 }
             }
+            .confirmationDialog(
+                "Delete \(itemToEdit?.brand ?? "") \(itemToEdit?.model ?? "")?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive, action: deleteItem)
+            }
         }
     }
 
     private func save() {
-        let item = WishlistItem(
-            brand: brand.trimmingCharacters(in: .whitespaces),
-            model: model.trimmingCharacters(in: .whitespaces),
-            targetPrice: targetPrice ?? 0,
-            notes: notes.trimmingCharacters(in: .whitespaces)
-        )
-        modelContext.insert(item)
+        if let itemToEdit {
+            itemToEdit.brand = brand.trimmingCharacters(in: .whitespaces)
+            itemToEdit.model = model.trimmingCharacters(in: .whitespaces)
+            itemToEdit.targetPrice = targetPrice ?? 0
+            itemToEdit.notes = notes.trimmingCharacters(in: .whitespaces)
+        } else {
+            let item = WishlistItem(
+                brand: brand.trimmingCharacters(in: .whitespaces),
+                model: model.trimmingCharacters(in: .whitespaces),
+                targetPrice: targetPrice ?? 0,
+                notes: notes.trimmingCharacters(in: .whitespaces)
+            )
+            modelContext.insert(item)
+        }
+        dismiss()
+    }
+
+    private func deleteItem() {
+        guard let itemToEdit else { return }
+        modelContext.delete(itemToEdit)
         dismiss()
     }
 }

@@ -335,6 +335,21 @@ struct WatchModelTests {
         #expect(watch.powerReserveRemainingFraction == 0.0)
     }
 
+    // MARK: - isOutForMaintenance
+
+    @Test("A watch with no drop-off date is not out for maintenance")
+    func isOutForMaintenanceFalseWithoutDropOffDate() {
+        let watch = makeWatch()
+        #expect(watch.isOutForMaintenance == false)
+    }
+
+    @Test("A watch with a drop-off date set is out for maintenance, regardless of an expected pickup date")
+    func isOutForMaintenanceTrueWithDropOffDate() {
+        let watch = makeWatch()
+        watch.maintenanceDropOffDate = .now
+        #expect(watch.isOutForMaintenance == true)
+    }
+
     // MARK: - daysSincePowerReserveDepleted
 
     @Test("daysSincePowerReserveDepleted is nil while the watch still has power")

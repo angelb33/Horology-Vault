@@ -74,6 +74,15 @@ final class Watch {
     var insuredValue: Double?
     var appraisalDate: Date?
 
+    // Out-for-maintenance tracking, added 2026-07-17. `maintenanceDropOffDate` non-nil is what
+    // it means for a watch to currently be "out for maintenance" — see `isOutForMaintenance`.
+    // Not `init(...)` parameters, same reasoning as `serviceIntervalYears`/the reminder-enabled
+    // toggles above: these are only ever set later via the Workbench's Maintenance section, never
+    // at watch-creation time.
+    var maintenanceDropOffDate: Date?
+    var maintenanceExpectedPickupDate: Date?
+    var maintenanceNotes: String?
+
     @Attribute(.externalStorage)
     var photoData: Data?
 
@@ -164,6 +173,15 @@ final class Watch {
     var isServiceDue: Bool {
         guard let serviceDueDate else { return false }
         return serviceDueDate < Date()
+    }
+
+    /// Whether the watch is currently checked in at a service center, set by the Workbench's
+    /// "Drop Off for Maintenance" action and cleared by "Mark Picked Up". A watch out for
+    /// maintenance is, by definition, already being addressed — `WatchCardView`'s badge and
+    /// `MaintenanceView`'s grouping both treat this as taking precedence over `isServiceDue`
+    /// rather than showing both states at once.
+    var isOutForMaintenance: Bool {
+        maintenanceDropOffDate != nil
     }
 
     /// Wear entries logged since the watch's last service (or since acquisition, if it's never been

@@ -93,6 +93,35 @@ enum NotificationManager {
             .removePendingNotificationRequests(withIdentifiers: [windReminderIdentifier(for: watch)])
     }
 
+    /// A one-off reminder for `maintenanceExpectedPickupDate` — unlike Service Due/Wind, there's
+    /// no separate app-wide master switch or per-watch toggle for this one; it's a transactional
+    /// appointment reminder (only exists while a watch is actually checked in for maintenance)
+    /// rather than a recurring, always-on setting, so the extra configuration layer didn't seem
+    /// worth it. Still gated behind `isUnlocked`, same as the other two.
+    static func schedulePickupReminder(for watch: Watch, isUnlocked: Bool) {
+        let center = UNUserNotificationCenter.current()
+        let identifier = pickupReminderIdentifier(for: watch)
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+
+        guard isUnlocked else { return }
+        guard let pickupDate = watch.maintenanceExpectedPickupDate, pickupDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Ready for Pickup"
+        content.body = "\(watch.brand) \(watch.model) should be ready to pick up from maintenance today."
+        content.sound = .default
+
+        let dateComponents = Calendar.current.dateComponents([.year, .month, .day], from: pickupDate)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        center.add(request)
+    }
+
+    static func cancelPickupReminder(for watch: Watch) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [pickupReminderIdentifier(for: watch)])
+    }
+
     /// Reschedules every watch's reminders — run once at launch, and again whenever the
     /// lifetime-unlock entitlement changes, so a mid-session purchase activates reminders
     /// immediately rather than requiring a relaunch, and edits made outside the app's own
@@ -101,6 +130,7 @@ enum NotificationManager {
         for watch in watches {
             scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
             scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+            schedulePickupReminder(for: watch, isUnlocked: isUnlocked)
         }
     }
 
@@ -112,5 +142,9 @@ enum NotificationManager {
 
     private static func windReminderIdentifier(for watch: Watch) -> String {
         "wind-reminder-\(String(describing: watch.persistentModelID))"
+    }
+
+    private static func pickupReminderIdentifier(for watch: Watch) -> String {
+        "pickup-reminder-\(String(describing: watch.persistentModelID))"
     }
 }

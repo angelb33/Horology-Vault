@@ -376,6 +376,7 @@ private struct AddServiceCenterView: View {
     @State private var secondaryWebsite: String
     @State private var address: String
     @State private var notes: String
+    @State private var isConfirmingDelete = false
 
     init(centerToEdit: CustomServiceCenter? = nil) {
         self.centerToEdit = centerToEdit
@@ -421,6 +422,13 @@ private struct AddServiceCenterView: View {
                 } header: {
                     SectionHeader("Notes")
                 }
+                if centerToEdit != nil {
+                    Section {
+                        Button("Delete Service Center", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
+                    }
+                }
             }
             #if os(macOS)
             .formStyle(.grouped)
@@ -438,10 +446,23 @@ private struct AddServiceCenterView: View {
                         .disabled(!canSave)
                 }
             }
+            .confirmationDialog(
+                "Delete \(centerToEdit?.name ?? "this service center")?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive, action: deleteCenter)
+            }
         }
         #if os(macOS)
         .frame(minWidth: 380, idealWidth: 420, minHeight: 420, idealHeight: 460)
         #endif
+    }
+
+    private func deleteCenter() {
+        guard let centerToEdit else { return }
+        modelContext.delete(centerToEdit)
+        dismiss()
     }
 
     private func save() {

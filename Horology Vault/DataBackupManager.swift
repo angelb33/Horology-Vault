@@ -204,6 +204,9 @@ enum DataBackupManager {
                 warrantyExpirationDate: watch.warrantyExpirationDate,
                 insuredValue: watch.insuredValue,
                 appraisalDate: watch.appraisalDate,
+                maintenanceDropOffDate: watch.maintenanceDropOffDate,
+                maintenanceExpectedPickupDate: watch.maintenanceExpectedPickupDate,
+                maintenanceNotes: watch.maintenanceNotes,
                 serviceRecords: watch.serviceRecords.map {
                     ServiceRecordBackup(datePerformed: $0.datePerformed, serviceType: $0.serviceType, accuracyDeltaSPD: $0.accuracyDeltaSPD)
                 },
@@ -289,6 +292,9 @@ enum DataBackupManager {
             watch.serviceIntervalYears = watchBackup.serviceIntervalYears
             watch.isServiceDueReminderEnabled = watchBackup.isServiceDueReminderEnabled
             watch.isWindReminderEnabled = watchBackup.isWindReminderEnabled
+            watch.maintenanceDropOffDate = watchBackup.maintenanceDropOffDate
+            watch.maintenanceExpectedPickupDate = watchBackup.maintenanceExpectedPickupDate
+            watch.maintenanceNotes = watchBackup.maintenanceNotes
             context.insert(watch)
             for record in watchBackup.serviceRecords {
                 context.insert(ServiceRecord(datePerformed: record.datePerformed, serviceType: record.serviceType, accuracyDeltaSPD: record.accuracyDeltaSPD, watch: watch))
@@ -401,6 +407,10 @@ private struct WatchBackup: Codable {
     var warrantyExpirationDate: Date?
     var insuredValue: Double?
     var appraisalDate: Date?
+    // Out-for-maintenance tracking (added 2026-07-17, same session as the fields above).
+    var maintenanceDropOffDate: Date?
+    var maintenanceExpectedPickupDate: Date?
+    var maintenanceNotes: String?
     var serviceRecords: [ServiceRecordBackup]
     var wearLogs: [WearLogBackup]
     var provenanceDocs: [ProvenanceDocBackup]

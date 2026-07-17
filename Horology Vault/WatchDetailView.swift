@@ -35,9 +35,11 @@ struct WatchDetailView: View {
 
     @State private var isEditing = false
     @State private var isAddingStrap = false
+    @State private var editingStrap: Strap?
     @State private var isLoggingService = false
     @State private var isAddingProvenanceDoc = false
     @State private var isConfirmingDelete = false
+    @State private var isDroppingOffForMaintenance = false
 
     var body: some View {
         Form {
@@ -46,6 +48,7 @@ struct WatchDetailView: View {
             conditionAndDocumentationSection
             remindersSection
             strapsSection
+            maintenanceSection
             serviceHistorySection
             wearLogSection
             powerReserveSection
@@ -78,11 +81,17 @@ struct WatchDetailView: View {
         .sheet(isPresented: $isAddingStrap) {
             AddStrapView(watch: watch)
         }
+        .sheet(item: $editingStrap) { strap in
+            AddStrapView(watch: watch, strapToEdit: strap)
+        }
         .sheet(isPresented: $isLoggingService) {
             AddServiceRecordView(watch: watch)
         }
         .sheet(isPresented: $isAddingProvenanceDoc) {
             AddProvenanceDocView(watch: watch)
+        }
+        .sheet(isPresented: $isDroppingOffForMaintenance) {
+            DropOffForMaintenanceView(watch: watch)
         }
         .confirmationDialog(
             "Delete \(watch.brand) \(watch.model)?",
@@ -92,6 +101,7 @@ struct WatchDetailView: View {
             Button("Delete", role: .destructive) {
                 NotificationManager.cancelServiceDueReminder(for: watch)
                 NotificationManager.cancelWindReminder(for: watch)
+                NotificationManager.cancelPickupReminder(for: watch)
                 modelContext.delete(watch)
                 dismiss()
             }
@@ -266,6 +276,7 @@ struct WatchDetailView: View {
                 if let notes = attached.notes, !notes.isEmpty {
                     LabeledContent("Notes", value: notes)
                 }
+                Button("Edit Strap…") { editingStrap = attached }
                 Button("Detach", role: .destructive) {
                     watch.attachedStrap = nil
                 }
@@ -301,6 +312,44 @@ struct WatchDetailView: View {
         return strap.summary
     }
 
+    /// Tracks a watch currently checked in at a service center — distinct from Service History,
+    /// which logs *completed* work. "Mark Picked Up" clears this state and opens Log Service
+    /// directly, since picking a watch up from maintenance is usually the moment to record what
+    /// was actually done — the same reasoning `logWindNow()`/`logWearToday()` use for
+    /// immediately rescheduling after a state change, applied to a UI hand-off instead.
+    private var maintenanceSection: some View {
+        Section {
+            if watch.isOutForMaintenance {
+                if let dropOffDate = watch.maintenanceDropOffDate {
+                    LabeledContent("Dropped Off", value: dropOffDate.formatted(date: .abbreviated, time: .omitted))
+                }
+                if let expectedPickupDate = watch.maintenanceExpectedPickupDate {
+                    LabeledContent("Expected Pickup", value: expectedPickupDate.formatted(date: .abbreviated, time: .omitted))
+                }
+                if let notes = watch.maintenanceNotes, !notes.isEmpty {
+                    LabeledContent("Notes", value: notes)
+                }
+                Button("Mark Picked Up") { markPickedUp() }
+            } else {
+                Text("Not currently out for maintenance.")
+                    .foregroundStyle(.secondary)
+                Button("Drop Off for Maintenance…") { isDroppingOffForMaintenance = true }
+            }
+        } header: {
+            SectionHeader("Maintenance")
+        } footer: {
+            Text("Tracks a watch currently checked in at a service center. Marking it picked up clears this and opens Log Service below, so you can record what was actually done.")
+        }
+    }
+
+    private func markPickedUp() {
+        watch.maintenanceDropOffDate = nil
+        watch.maintenanceExpectedPickupDate = nil
+        watch.maintenanceNotes = nil
+        NotificationManager.cancelPickupReminder(for: watch)
+        isLoggingService = true
+    }
+
     private var serviceHistorySection: some View {
         Section {
             AccuracyChartView(serviceRecords: watch.serviceRecords)
@@ -314,11 +363,22 @@ struct WatchDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .onDelete(perform: deleteServiceRecords)
 
             Button("Log Service…") { isLoggingService = true }
         } header: {
             SectionHeader("Service History")
         }
+    }
+
+    private func deleteServiceRecords(at offsets: IndexSet) {
+        let sorted = watch.serviceRecords.sorted(by: { $0.datePerformed > $1.datePerformed })
+        for index in offsets {
+            modelContext.delete(sorted[index])
+        }
+        // Deleting a record can change lastServiceDate/serviceDueDate, same reasoning
+        // AddServiceRecordView's save() already reschedules after logging one.
+        NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     private var wearLogSection: some View {
@@ -336,6 +396,7 @@ struct WatchDetailView: View {
                     }
                 }
             }
+            .onDelete(perform: deleteWearLogs)
         } header: {
             SectionHeader("Wear Log")
         }
@@ -346,6 +407,15 @@ struct WatchDetailView: View {
         modelContext.insert(entry)
         // Wearing an automatic also recharges its mainspring (see Watch.lastPoweredDate), so
         // this can push powerReserveExpiresAt out; a no-op reschedule for manual/quartz watches.
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+    }
+
+    private func deleteWearLogs(at offsets: IndexSet) {
+        let sorted = watch.wearLogs.sorted(by: { $0.dateWorn > $1.dateWorn })
+        for index in offsets {
+            modelContext.delete(sorted[index])
+        }
+        // Same reasoning as logWearToday() — an automatic's lastPoweredDate can depend on wearLogs.
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
@@ -362,10 +432,20 @@ struct WatchDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                .onDelete(perform: deleteWindLogs)
             } header: {
                 SectionHeader("Power Reserve")
             }
         }
+    }
+
+    private func deleteWindLogs(at offsets: IndexSet) {
+        let sorted = watch.windLogs.sorted(by: { $0.dateWound > $1.dateWound })
+        for index in offsets {
+            modelContext.delete(sorted[index])
+        }
+        // Same reasoning as logWindNow() — deleting a wind can change lastPoweredDate/powerReserveExpiresAt.
+        NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     @ViewBuilder
@@ -448,12 +528,24 @@ private struct AddStrapView: View {
     @Environment(\.dismiss) private var dismiss
 
     let watch: Watch
+    private let strapToEdit: Strap?
 
-    @State private var name = ""
-    @State private var material = ""
+    @State private var name: String
+    @State private var material: String
     @State private var widthMM: Double?
     @State private var lengthMM: Double?
-    @State private var notes = ""
+    @State private var notes: String
+    @State private var isConfirmingDelete = false
+
+    init(watch: Watch, strapToEdit: Strap? = nil) {
+        self.watch = watch
+        self.strapToEdit = strapToEdit
+        _name = State(initialValue: strapToEdit?.name ?? "")
+        _material = State(initialValue: strapToEdit?.material ?? "")
+        _widthMM = State(initialValue: strapToEdit?.widthMM)
+        _lengthMM = State(initialValue: strapToEdit?.lengthMM)
+        _notes = State(initialValue: strapToEdit?.notes ?? "")
+    }
 
     private var canSave: Bool {
         !material.trimmingCharacters(in: .whitespaces).isEmpty && (widthMM ?? 0) > 0
@@ -498,11 +590,18 @@ private struct AddStrapView: View {
                 } header: {
                     SectionHeader("Notes")
                 }
+                if strapToEdit != nil {
+                    Section {
+                        Button("Delete Strap", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
+                    }
+                }
             }
             #if os(macOS)
             .formStyle(.grouped)
             #endif
-            .navigationTitle("Add Strap")
+            .navigationTitle(strapToEdit == nil ? "Add Strap" : "Edit Strap")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -515,6 +614,15 @@ private struct AddStrapView: View {
                         .disabled(!canSave)
                 }
             }
+            .confirmationDialog(
+                "Delete this strap?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive, action: deleteStrap)
+            } message: {
+                Text("This removes the strap entirely, not just from this watch.")
+            }
         }
         #if os(macOS)
         .frame(minWidth: 380, idealWidth: 420, minHeight: 360, idealHeight: 400)
@@ -524,15 +632,31 @@ private struct AddStrapView: View {
     private func save() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedNotes = notes.trimmingCharacters(in: .whitespaces)
-        let strap = Strap(
-            name: trimmedName.isEmpty ? nil : trimmedName,
-            material: material.trimmingCharacters(in: .whitespaces),
-            widthMM: widthMM ?? 0,
-            lengthMM: lengthMM,
-            notes: trimmedNotes.isEmpty ? nil : trimmedNotes
-        )
-        modelContext.insert(strap)
-        watch.attachedStrap = strap
+        if let strapToEdit {
+            strapToEdit.name = trimmedName.isEmpty ? nil : trimmedName
+            strapToEdit.material = material.trimmingCharacters(in: .whitespaces)
+            strapToEdit.widthMM = widthMM ?? 0
+            strapToEdit.lengthMM = lengthMM
+            strapToEdit.notes = trimmedNotes.isEmpty ? nil : trimmedNotes
+        } else {
+            let strap = Strap(
+                name: trimmedName.isEmpty ? nil : trimmedName,
+                material: material.trimmingCharacters(in: .whitespaces),
+                widthMM: widthMM ?? 0,
+                lengthMM: lengthMM,
+                notes: trimmedNotes.isEmpty ? nil : trimmedNotes
+            )
+            modelContext.insert(strap)
+            watch.attachedStrap = strap
+        }
+        dismiss()
+    }
+
+    private func deleteStrap() {
+        guard let strapToEdit else { return }
+        // Strap.attachedWatch has no explicit deleteRule, which defaults to .nullify — deleting
+        // the strap directly is safe and automatically clears watch.attachedStrap if this was it.
+        modelContext.delete(strapToEdit)
         dismiss()
     }
 }
@@ -613,6 +737,71 @@ private struct AddServiceRecordView: View {
         )
         modelContext.insert(record)
         NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+        dismiss()
+    }
+}
+
+private struct DropOffForMaintenanceView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Query private var entitlements: [Entitlements]
+
+    let watch: Watch
+
+    @State private var dropOffDate = Date()
+    @State private var hasExpectedPickupDate = false
+    @State private var expectedPickupDate = Date()
+    @State private var notes = ""
+
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker("Dropped Off", selection: $dropOffDate, displayedComponents: .date)
+                    Toggle("Expected Pickup Date", isOn: $hasExpectedPickupDate)
+                    if hasExpectedPickupDate {
+                        DatePicker("Expected Pickup", selection: $expectedPickupDate, displayedComponents: .date)
+                    }
+                } header: {
+                    SectionHeader("Maintenance")
+                }
+                Section {
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                } header: {
+                    SectionHeader("Notes")
+                }
+            }
+            #if os(macOS)
+            .formStyle(.grouped)
+            #endif
+            .navigationTitle("Drop Off for Maintenance")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 380, idealWidth: 420, minHeight: 320, idealHeight: 360)
+        #endif
+    }
+
+    private func save() {
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespaces)
+        watch.maintenanceDropOffDate = dropOffDate
+        watch.maintenanceExpectedPickupDate = hasExpectedPickupDate ? expectedPickupDate : nil
+        watch.maintenanceNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
+        NotificationManager.schedulePickupReminder(for: watch, isUnlocked: isUnlocked)
         dismiss()
     }
 }

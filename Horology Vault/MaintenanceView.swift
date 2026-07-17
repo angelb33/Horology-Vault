@@ -11,17 +11,26 @@ import SwiftData
 struct MaintenanceView: View {
     @Query private var watches: [Watch]
 
+    /// Watches currently checked in at a service center — kept out of the Service Due / Up to
+    /// Date buckets below (a watch already being addressed doesn't need to also show up as
+    /// "due"), most recently dropped off first.
+    private var outForMaintenanceWatches: [Watch] {
+        watches
+            .filter(\.isOutForMaintenance)
+            .sorted { ($0.maintenanceDropOffDate ?? .distantPast) > ($1.maintenanceDropOffDate ?? .distantPast) }
+    }
+
     /// Watches past their service interval, most overdue first (oldest service /
     /// acquisition date at the top so the row that needs attention leads the list).
     private var dueWatches: [Watch] {
         watches
-            .filter(\.isServiceDue)
+            .filter { $0.isServiceDue && !$0.isOutForMaintenance }
             .sorted { referenceDate(for: $0) < referenceDate(for: $1) }
     }
 
     private var upToDateWatches: [Watch] {
         watches
-            .filter { !$0.isServiceDue }
+            .filter { !$0.isServiceDue && !$0.isOutForMaintenance }
             .sorted { referenceDate(for: $0) < referenceDate(for: $1) }
     }
 
@@ -40,6 +49,15 @@ struct MaintenanceView: View {
                     )
                 } else {
                     List {
+                        if !outForMaintenanceWatches.isEmpty {
+                            Section {
+                                ForEach(outForMaintenanceWatches) { watch in
+                                    OutForMaintenanceRow(watch: watch)
+                                }
+                            } header: {
+                                SectionHeader("Out for Maintenance")
+                            }
+                        }
                         if !dueWatches.isEmpty {
                             Section {
                                 ForEach(dueWatches) { watch in
@@ -65,6 +83,37 @@ struct MaintenanceView: View {
             .navigationDestination(for: Watch.self) { watch in
                 WatchDetailView(watch: watch)
             }
+        }
+    }
+}
+
+private struct OutForMaintenanceRow: View {
+    let watch: Watch
+
+    private var statusText: String {
+        guard let dropOffDate = watch.maintenanceDropOffDate else { return "" }
+        let dropOffText = "Dropped off \(dropOffDate.formatted(date: .abbreviated, time: .omitted))"
+        guard let expectedPickupDate = watch.maintenanceExpectedPickupDate else { return dropOffText }
+        return "\(dropOffText) · expected \(expectedPickupDate.formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    var body: some View {
+        NavigationLink(value: watch) {
+            HStack(spacing: 12) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                    .accessibilityLabel("Out for maintenance")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(watch.brand) \(watch.model)")
+                        .font(.headline)
+                    Text(statusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
         }
     }
 }

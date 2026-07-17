@@ -199,6 +199,8 @@ struct AddWatchView: View {
             }
         } header: {
             SectionHeader("Details")
+        } footer: {
+            Text("Reference Number identifies the model (e.g. what's printed in the catalog); Serial Number identifies this individual watch — both are useful for service and insurance, but they're not the same thing.")
         }
     }
 
@@ -221,6 +223,8 @@ struct AddWatchView: View {
             }
         } header: {
             SectionHeader("Specifications")
+        } footer: {
+            Text("All optional. Caliber is the specific movement reference (e.g. \"ETA 2824-2\"), separate from the Movement Type set below.")
         }
     }
 
@@ -256,6 +260,8 @@ struct AddWatchView: View {
             }
         } header: {
             SectionHeader("Condition & Documentation")
+        } footer: {
+            Text("Box & Papers is what accessories came with the watch (original box, warranty card, certificate), which affects resale value. Insured Value is what you'd want reimbursed if lost — it can differ from Purchase Price above, e.g. if the watch has appreciated.")
         }
     }
 
@@ -297,6 +303,11 @@ struct AddWatchView: View {
             SectionHeader("Movement")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
+                if movementType == .manual || movementType == .automatic {
+                    Text("Power Reserve is how many hours the mainspring runs before needing winding again. Wind Reminder is how long before it runs out you'd like to be warned.")
+                } else if movementType == .quartz {
+                    Text("Quartz watches run on a battery, not a wind — there's nothing to track here. Log a battery replacement as a normal service record instead.")
+                }
                 if !isWindReminderLeadTimeValid {
                     Label("Wind Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)

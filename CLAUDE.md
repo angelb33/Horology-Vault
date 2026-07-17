@@ -341,7 +341,190 @@ gap can't reopen unnoticed if a future field is added to `Watch` without a match
 CSV export/import remains deliberately unchanged and still covers only `Watch`'s own flat fields (brand,
 model, reference number, complications, measurements, acquisition date) — same "portability format, not a
 full backup" scope it already had, unaffected by any of this.
+Before implementing, the migration-guardian agent was used proactively (per this file's own stated
+practice) to review the 10-field schema change. Verdict: safe additive change, all ten properties correctly
+optional, both new enums correctly `Codable` in both the SwiftData and backup-DTO contexts, and it
+independently re-ran `DataBackupManagerTests` to confirm the round trip. It flagged two minor,
+non-blocking notes: (1) `WatchBackup`'s array fields (`windLogs`, `serviceRecords`, etc.) are non-optional
+in the Codable DTO, so a hypothetical backup file missing one of those keys entirely would fail to decode
+rather than defaulting to empty — deliberately left as-is, since the app is pre-launch and no such file can
+exist yet; revisit if this ever becomes a real forward-compatibility concern post-launch. (2) A cosmetic
+guard-consistency issue in `WatchDetailView.specificationsSection`, which was fixed (its outer visibility
+check now uses the same `?.isEmpty == false` predicate as the inner rows, matching `overviewSection`'s
+existing pattern, instead of a plain `!= nil` that could theoretically show an empty section — unreachable
+today since `save()` already nils out empty strings, but worth being consistent). The agent also created an
+unrequested `SCHEMA_CHANGELOG.md`; removed, since its content duplicated this file and a second doc that
+has to be kept in sync wasn't wanted.
 Both platforms build clean and the full unit test suite passes.
+Immediately after, from a user brainstorm session, the first of three checklist items was built the same
+day: **out-for-maintenance tracking** — a watch checked in at a service center, distinct from Service
+History (which logs completed work). `Watch` gained three more post-`init`-only optional fields (same
+reasoning as `serviceIntervalYears`/the reminder toggles: set later via UI action, never at creation time):
+`maintenanceDropOffDate`/`maintenanceExpectedPickupDate`/`maintenanceNotes`, plus a computed
+`isOutForMaintenance` (`maintenanceDropOffDate != nil` — 2 new tests). `WatchDetailView` gained a
+**Maintenance** section (placed right before Service History) showing either a "Drop Off for
+Maintenance…" button (opens a new private `DropOffForMaintenanceView` sheet — drop-off date, an optional
+expected-pickup date using the same toggle-pairs-with-concrete-`Date` pattern as the collector-detail
+fields' optional dates, and free-text notes) or, once out, the drop-off/pickup/notes readout plus a "Mark
+Picked Up" button. Picking up **clears the three fields and immediately opens the existing Log Service
+sheet** (`isLoggingService = true`) — picking a watch up from maintenance is usually the moment to record
+what was actually done, so the flow hands off directly rather than making the user separately remember to
+log it. A third reminder type, **Pickup Reminder**, was added to `NotificationManager`
+(`schedulePickupReminder`/`cancelPickupReminder`, folded into `rescheduleAll`) — deliberately simpler than
+Service Due/Wind: gated behind `isUnlocked` only, no app-wide master switch or per-watch toggle, since
+unlike those two (recurring, always-on settings) this is a one-off appointment reminder that only exists
+while a watch is actually checked in. `WatchCardView` gained a blue `shippingbox.fill` badge (verified to
+exist via the established `NSImage`-check practice) that **supersedes** the orange service-due wrench badge
+when a watch is out for maintenance — showing both would be redundant, since a watch already at the shop
+doesn't need a "you should service this" nag. `MaintenanceView` gained a new "Out for Maintenance" section
+(above Service Due, watches sorted most-recently-dropped-off first) via a new `OutForMaintenanceRow`; the
+existing Service Due / Up to Date filters were updated to exclude out-for-maintenance watches so a watch
+doesn't appear in two buckets at once. `DataBackupManager`'s `WatchBackup` DTO was extended with the three
+new fields immediately, applying the lesson from the gap found earlier in this same session rather than
+letting it reopen — the existing round-trip test was extended to cover them (now also asserting
+`isOutForMaintenance == true` post-restore) instead of adding a separate test. Both platforms build clean
+and the full unit test suite passes.
+`VaultGridView` gained a `.searchable` search bar the same day (brand/model/reference number/serial
+number, case-insensitive `localizedCaseInsensitiveContains`), same pattern `LearnHubView`/
+`ServiceCentersView` already established — `ContentUnavailableView.search(text:)` for a no-results state,
+distinct from the existing "No Watches Yet" empty-collection state. Pure UI filtering over already-fetched
+`@Query` results, no new model logic, so no new tests, matching how `LearnHubView`'s search isn't unit
+tested either. Both platforms build clean.
+Right after, the user flagged (with a screenshot) that Vault grid cards looked non-uniform and would get
+worse as more watches were added. First pass (`.lineLimit(2, reservesSpace: true)` on the model-name `Text`)
+addressed text-wrapping height variance but wasn't sufficient — the `ui-designer` subagent was consulted
+(per the user's explicit request) and diagnosed two live contributors, both fixed in `WatchCardView.swift`:
+(1) the power-reserve bar's `if showsPowerReserveBar { ... }` conditionally added/removed an entire 12pt
+element (4pt bar + 8pt `VStack` spacing), and since `LazyVGrid` rows share height across all cells in that
+row, one card without a bar sitting next to cards with one grew that whole row unevenly — fixed by always
+reserving a 4pt-tall slot when `isUnlocked` (an empty `ZStack` when the current watch has no bar to show),
+gated on `isUnlocked` specifically so free users — who never see a bar on any card — don't get dead space
+reserved for a feature they can't see; (2) the photo/placeholder's `.aspectRatio(1, contentMode: .fit)` was
+applied directly to flexible content (`SmartCroppedImage`'s `GeometryReader`, or the placeholder
+`RoundedRectangle`), which meant the square's size was derived from whatever leftover space the row's
+`VStack` offered — when row heights varied for any reason (contributor 1, or anything in the future), the
+photo silently resized/shifted along with it. Fixed by decoupling the photo from card content entirely: a
+new `photoSquare` computed property wraps `Color.clear.aspectRatio(1, contentMode: .fit)` (a square whose
+size comes purely from the column width the grid offers, never from sibling content) with `.overlay {
+photoContent }` holding the actual image or placeholder, and `.clipShape` moved to the outer square. Status
+badges were re-attached as `.overlay(alignment:...)` directly on `photoSquare` rather than the old
+`ZStack`-wrapping-`photo` pattern — functionally identical, just restructured around the new square. The
+`ui-designer` agent explicitly recommended against capping the whole card with a fixed `.frame(height:)`,
+since that breaks under Dynamic Type/localization — making each sub-element's size deterministic (square
+photo, reserved bar slot, reserved 2-line title) was preferred so card height stays a pure function of
+column width + text size, uniform by construction for any number of future watches. Pure layout change, no
+model/business logic touched, so no new tests; both platforms build clean.
+Two small same-day follow-ups to the card: **the Brand/Model order was swapped back** — Brand is `.headline`
+(1 line) on top, Model is `.subheadline`/secondary below, keeping the `.lineLimit(2, reservesSpace: true)`
+reservation on whichever line holds the model text (now the second line) rather than tied to font size,
+since model names are the ones actually likely to wrap. **`PowerReserveBarView`'s fill got a minimum
+width** (`max(geometry.size.width * fraction, 3)`) — at `fraction == 0` the filled `Capsule` was previously
+0pt wide, so "depleted" (which `tint` already correctly resolves to `.red`) was invisible against the gray
+track; now there's always a visible 3pt sliver.
+**A Settings toggle was added to control the bar's visibility entirely**: `isPowerReserveBarEnabled`
+(`@AppStorage`, literal string key shared between `SettingsView` and `WatchCardView`, same pattern as
+`colorSchemePreference`/`accentColorOption` — no dedicated manager type to centralize the key on, unlike
+the reminder/backup keys). Added as a `Toggle` in Settings' Appearance section (default on), with a footer
+note shown only when locked, since the toggle has no visible effect until the user unlocks the underlying
+feature. `WatchCardView.showsPowerReserveBar` now checks `isUnlocked && isPowerReserveBarEnabled &&
+watch.powerReserveRemainingFraction != nil` — turning the toggle off falls back to the same red
+`gauge.with.needle` depleted badge free/locked users already see (no new fallback UI needed, the existing
+`!showsPowerReserveBar` branch already covers it), and the reserved 4pt bar-slot row from the uniformity fix
+above is now also conditioned on `isPowerReserveBarEnabled` so the whole row disappears — not just goes
+empty — when the feature is switched off, keeping the toggle's "off" state a clean full removal rather than
+dead reserved space. Pure UI/preference change, no new tests; both platforms build clean.
+A copy-only pass followed the same day, adding `Section` footers/captions wherever the user felt a
+setting or field wasn't self-explanatory: `SettingsView`'s Appearance section now always explains what the
+Power Reserve toggle does (previously only had a conditional locked-state note); the Purchase section
+gained a footer summarizing what the one-time unlock actually includes (Insights, both reminder types,
+Scheduled Backup) versus what's already free, since it previously had no footer at all. `AddWatchView`
+gained footers on three previously-undocumented sections: Details (clarifies Reference Number vs. Serial
+Number aren't the same thing — model identity vs. this specific unit), Specifications (notes everything's
+optional, defines Caliber), and Condition & Documentation (defines Box & Papers, distinguishes Insured
+Value from Purchase Price above it). Movement's existing conditional footer gained an unconditional
+explanatory line on top — what Power Reserve/Wind Reminder mean when manual/automatic is selected, or why
+there's nothing to fill in for quartz (battery-powered, log a replacement as a normal service record
+instead). `WatchDetailView`'s Maintenance section gained a footer distinguishing it from Service History
+below it. `WishlistView`'s permanently-disabled "Price Alert" toggle (a V2/subscription feature stubbed in
+now, per the monetization plan) previously had zero explanation for why it can't be turned on — gained a
+small "Coming in a future update" caption underneath. Pure copy change, no logic touched anywhere, so no
+new tests; both platforms build clean.
+A real bug the earlier brainstorm session had flagged but not yet fixed came back as a direct user report:
+**custom service centers still couldn't be deleted.** Root cause confirmed: swipe-to-delete
+(`.onDelete(perform: deleteCustomCenters)`) was wired at the `List` level, but `CustomCenterRow`'s
+`.contextMenu` only had "Edit" — no "Delete" — and swipe gestures are unreliable/absent on macOS
+specifically, which is this project's primary dev/test platform. Fixed in `ServiceCentersView.swift`:
+`CustomCenterRow` gained an `onDelete: () -> Void` closure param, a destructive "Delete" context-menu item,
+and a `confirmationDialog` (same pattern `WatchDetailView`'s watch-delete flow already uses) so a
+misclick can't silently destroy a center; the parent view wires it to a new `deleteCustomCenter(_:)` that
+just calls `modelContext.delete`. The original `.onDelete`/swipe path was left in place too — belt-and-
+suspenders, matching this app's established multi-entry-point delete pattern (e.g. `WatchDetailView` also
+has both a toolbar Delete and used to have a duplicate `VaultGridView` context-menu one before that was
+removed as redundant in Phase 14). Pure UI fix, no model logic, no new tests; both platforms build clean.
+**That context-menu-only fix turned out to still not be discoverable enough** — the user reported the same
+day, after the fix above, that they still couldn't find a delete option. A first follow-up added an
+always-visible red trash `Button` directly on `CustomCenterRow` — but the user then explicitly said they
+didn't want a permanently-visible delete control on the row at all, and asked for it inside the edit sheet
+instead, closer to how `EditOfficialContactView`'s "Reset to Default" already works. **Final design**:
+the row-level button and its context-menu Delete item were both reverted (`CustomCenterRow` is back to
+just "Edit" via tap or context menu); `AddServiceCenterView` (the same sheet used for both add and edit,
+keyed on `centerToEdit`) gained a destructive "Delete Service Center" button in its own `Section`, shown
+only when `centerToEdit != nil` — i.e. only in edit mode, never when creating a new one — with a
+`confirmationDialog` before it actually deletes and dismisses. The original List-level
+`.onDelete`/swipe-to-delete was left alone throughout all of this (pre-existing, never the reported
+problem). **Unverified as of 2026-07-17** — same longstanding sandbox limitation as the rest of this app's
+UI work; the user should confirm this final placement actually solves it before treating it as resolved.
+Both platforms build clean.
+After all the delete/edit churn above, the user asked for a full symmetry/consistency audit across every
+CRUD-capable view — a plain-text review, no code read or written for it. Findings: Section headers, empty
+states, toolbar Add buttons, and create-sheet form styling were already consistent everywhere; but three
+real asymmetries surfaced — (1) three different behaviors for tapping a list row (Vault/Maintenance push to
+a read-only detail view before editing; Service Centers open straight into an edit sheet with no detail
+view; Wishlist did nothing at all), (2) `WishlistItem` had zero edit capability (add + swipe-delete only,
+unlike every other model), (3) unlike every other real delete in the app (Watch, Service Center), Settings'
+"Remove Stored Passphrase" fired immediately with no confirmation despite being `role: .destructive`. (A
+fourth item, sub-collections inside the Workbench being add-only with inconsistent delete support, was
+noted but not actioned — a bigger design call left for later.) The user asked to fix (2) and (3) first.
+**(2) `WishlistItem` gained full edit capability**, matching the pattern just established for Service
+Centers: `WishlistRow` gained an `onEdit` closure, tap-to-edit, and an "Edit" context-menu item;
+`AddWishlistItemView` gained an `itemToEdit: WishlistItem?` init param (mirroring `AddServiceCenterView`'s
+`centerToEdit`), branches its `save()` between mutate-existing and insert-new, and gained a "Delete
+Wishlist Item" section (edit mode only) with a `confirmationDialog` — same shape as the Service Center
+delete flow, right down to leaving the List-level swipe-to-delete in place alongside it.
+**(3) Settings' "Remove Stored Passphrase" now confirms first**: a new `isConfirmingPassphraseRemoval`
+`@State` plus a `confirmationDialog` (added inside the existing `withPassphraseAndStatusAlerts` helper,
+not stacked directly onto `body`'s already-fragile modifier chain — see the type-checker note earlier in
+this file) gates the actual `KeychainHelper.deletePassphrase()` call, with a message clarifying Scheduled
+Backup won't run again until a new passphrase is set. Pure UI change, no model logic touched, no new tests;
+both platforms build clean.
+The user then asked to tackle #1 and #5 from the audit. **#1 turned out to already be resolved** as a side
+effect of the Wishlist edit fix above — asked first before writing any code, since building unwanted detail
+screens for Service Centers/Wishlist would've been wasted work: confirmed the two-tier system (Watch pushes
+to a detail view since it's a hub with real sub-content; Service Center/Wishlist Item open their edit sheet
+directly since there's nothing beyond the row's own fields to show) is the desired end state, not a gap.
+**#5 — the Workbench's sub-collections gained consistent delete support, and Straps gained full edit
+support.** Service Records, Wear Log, and Wind Log entries (previously add-only, with literally no way to
+correct a mistaken log) all gained `.onDelete` swipe-to-delete, matching Provenance Docs' already-established
+pattern — bringing all four "log entry" sub-collections to the same add+swipe-delete shape. Each delete
+function also reschedules the relevant reminder afterward (Service Records → `scheduleServiceDueReminder`,
+Wear Log and Wind Log → `scheduleWindReminder`), since removing a log entry can shift `serviceDueDate`/
+`powerReserveExpiresAt` the same way logging one does — same reasoning `AddServiceRecordView.save()`/
+`logWindNow()`/`logWearToday()` already established for scheduling after a *positive* change, just applied
+to the reverse case. **Straps**, being a fundamentally different kind of sub-collection (a reusable object
+with several fields worth correcting, not a one-shot timestamped event), got the full edit-sheet treatment
+instead — the same pattern now shared by Service Center/Wishlist Item: `AddStrapView` gained a
+`strapToEdit: Strap?` init param, branches `save()` between mutate-existing and insert-new-then-attach, and
+gained a "Delete Strap" section (edit mode only) with a `confirmationDialog` — this deletes the `Strap`
+object entirely, not just detaches it from the current watch (the dialog's message says so explicitly, to
+avoid ambiguity with the existing "Detach" button, which only clears `watch.attachedStrap` without deleting
+anything). `strapsSection` gained an "Edit Strap…" button next to "Detach" when a strap is attached, and
+`WatchDetailView` gained a new `editingStrap: Strap?` `@State` + `.sheet(item:)`, mirroring exactly how
+`editingCustomCenter`/`editingItem` already work in `ServiceCentersView`/`WishlistView`. Confirmed safe to
+delete a `Strap` directly: `Strap.attachedWatch` has no explicit `deleteRule`, which SwiftData defaults to
+`.nullify`, so `watch.attachedStrap` clears itself automatically if the deleted strap was attached — no
+manual detach-before-delete step needed. Pure UI/CRUD-wiring change, no new business logic (the delete
+functions mirror the shape of already-untested UI glue like `logWearToday()`), so no new tests; both
+platforms build clean.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
@@ -436,22 +619,28 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   `confirmationDialog`; don't re-add a second delete entry point here) → `WatchCardView` (photo thumbnail,
   smart-cropped via Vision saliency detection so the square crop centers on the subject rather than the
   geometric center — see `WatchCardView.swift`'s `saliencyFocusPoint`/`SmartCroppedImage` — plus an orange
-  service-due wrench badge and, since 2026-07-17, a red "gauge.with.needle" power-reserve-depleted badge in
-  the opposite corner) → `WatchDetailView` ("the Workbench": Form with an Edit toolbar button reopening
-  `AddWatchView` pre-filled, a destructive Delete toolbar button, and these sections: Overview incl. optional
-  reference number, Reminders (per-watch Service Due/Wind Reminder toggles + a Service Interval override,
-  added 2026-07-17 right after Overview for visibility — see the reminder-gating paragraphs earlier in this
-  file), Straps (attach/detach picker + "Add New Strap…" → `AddStrapView` sheet, flags straps
-  already attached elsewhere), Service History (`AccuracyChartView` chart + "Log Service…" →
-  `AddServiceRecordView` sheet), Wear Log ("Log Today" button + sorted `WearLog` entries), Power Reserve
-  (manual/automatic watches only, see the Winding Log bullet below), Provenance ("Add Document…" →
-  `AddProvenanceDocView` sheet using `.fileImporter` for PDF/image + swipe-to-delete list), and Fit Preview
-  (embeds `FitDiagramView`)). `AddStrapView`/`AddServiceRecordView`/`AddProvenanceDocView` are private structs
+  service-due wrench badge (superseded by a blue `shippingbox.fill` badge while the watch is out for
+  maintenance, added 2026-07-17) and, since 2026-07-17, a red "gauge.with.needle" power-reserve-depleted
+  badge in the opposite corner) → `WatchDetailView` ("the Workbench": Form with an Edit toolbar button
+  reopening `AddWatchView` pre-filled, a destructive Delete toolbar button, and these sections: Overview
+  incl. optional reference number, Specifications and Condition & Documentation (collector/insurance detail
+  fields, hidden entirely when empty — see the field-addition paragraph earlier in this file), Reminders
+  (per-watch Service Due/Wind Reminder toggles + a Service Interval override, added 2026-07-17 right after
+  Overview for visibility — see the reminder-gating paragraphs earlier in this file), Straps (attach/detach
+  picker + "Add New Strap…" → `AddStrapView` sheet, flags straps already attached elsewhere), Maintenance
+  ("Drop Off for Maintenance…" → `DropOffForMaintenanceView` sheet, or once out, a "Mark Picked Up" button
+  that clears the state and opens Log Service directly — see the out-for-maintenance paragraph earlier in
+  this file), Service History (`AccuracyChartView` chart + "Log Service…" → `AddServiceRecordView` sheet),
+  Wear Log ("Log Today" button + sorted `WearLog` entries), Power Reserve (manual/automatic watches only,
+  see the Winding Log bullet below), Provenance ("Add Document…" → `AddProvenanceDocView` sheet using
+  `.fileImporter` for PDF/image + swipe-to-delete list), and Fit Preview (embeds `FitDiagramView`)).
+  `AddStrapView`/`AddServiceRecordView`/`AddProvenanceDocView`/`DropOffForMaintenanceView` are private structs
   defined inside `WatchDetailView.swift`, not separate files. Sibling sections: `FitCalculatorView`
   (standalone watch picker embedding `FitDiagramView`, a `Canvas`-based top-down lug-to-lug-vs-wrist diagram
   with a fits/overhangs verdict), `WishlistView` (list of `WishlistItem`, price-alert toggle present but
-  disabled pending V2), `MaintenanceView` (watches split into Service Due / Up to Date via
-  `Watch.isServiceDue`, rows push into `WatchDetailView`), `ServiceCentersView` (`.searchable` List with two
+  disabled pending V2), `MaintenanceView` (watches split into Out for Maintenance / Service Due / Up to Date
+  via `Watch.isOutForMaintenance`/`isServiceDue` — Out for Maintenance added 2026-07-17, excluded from the
+  other two buckets so a watch never appears twice — rows push into `WatchDetailView`), `ServiceCentersView` (`.searchable` List with two
   independently collapsible `DisclosureGroup` sections — "Manufacturer Support" over
   `OfficialServiceDirectory.contacts` merged with any matching `ServiceContactOverride` (tap a row or use
   its context menu to edit; edited rows get an "Edited" badge and a "Reset to Default" action that just
