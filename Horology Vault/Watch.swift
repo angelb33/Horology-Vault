@@ -56,6 +56,7 @@ final class Watch {
     var serviceIntervalYears: Int?
     var isServiceDueReminderEnabled: Bool?
     var isWindReminderEnabled: Bool?
+    var isPowerReserveDepletedReminderEnabled: Bool?
 
     // Collector/insurance detail fields, added 2026-07-17 after a review of what comparable
     // watch-collection apps and horology/insurance sources commonly track (see CLAUDE.md for

@@ -24,6 +24,7 @@ struct WatchDetailView: View {
     // effect in that state. See NotificationManager's doc comment for the AND-gate relationship.
     @AppStorage(NotificationManager.isServiceDueReminderEnabledKey) private var isServiceDueReminderEnabledGlobally = true
     @AppStorage(NotificationManager.isWindReminderEnabledKey) private var isWindReminderEnabledGlobally = true
+    @AppStorage(NotificationManager.isPowerReserveDepletedReminderEnabledKey) private var isPowerReserveDepletedReminderEnabledGlobally = true
 
     private var compatibleStraps: [Strap] {
         allStraps.filter { $0.widthMM == watch.lugWidthMM }
@@ -101,6 +102,7 @@ struct WatchDetailView: View {
             Button("Delete", role: .destructive) {
                 NotificationManager.cancelServiceDueReminder(for: watch)
                 NotificationManager.cancelWindReminder(for: watch)
+                NotificationManager.cancelPowerReserveDepletedReminder(for: watch)
                 NotificationManager.cancelPickupReminder(for: watch)
                 modelContext.delete(watch)
                 dismiss()
@@ -130,6 +132,8 @@ struct WatchDetailView: View {
             }
         } header: {
             SectionHeader("Overview")
+        } footer: {
+            Text("Case Diameter, Lug-to-Lug, and Lug Width feed the Fit Calculator and Fit Preview below.")
         }
     }
 
@@ -155,6 +159,8 @@ struct WatchDetailView: View {
                 }
             } header: {
                 SectionHeader("Specifications")
+            } footer: {
+                Text("Movement details and physical specs entered in Edit Watch.")
             }
         }
     }
@@ -181,6 +187,8 @@ struct WatchDetailView: View {
                 }
             } header: {
                 SectionHeader("Condition & Documentation")
+            } footer: {
+                Text("Condition and insurance details for recordkeeping — set these in Edit Watch.")
             }
         }
     }
@@ -209,18 +217,23 @@ struct WatchDetailView: View {
                 if watch.movementType == .manual || watch.movementType == .automatic {
                     Toggle("Wind Reminder", isOn: windReminderEnabledBinding)
                         .disabled(!isWindReminderEnabledGlobally)
+                    Toggle("Power Reserve Depleted Reminder", isOn: powerReserveDepletedReminderEnabledBinding)
+                        .disabled(!isPowerReserveDepletedReminderEnabledGlobally)
                 }
             } header: {
                 SectionHeader("Reminders")
             } footer: {
-                // Only mention whichever master switch is actually off, rather than a generic
-                // reminder every time — the greyed-out controls above already show which one.
-                if !isServiceDueReminderEnabledGlobally && !isWindReminderEnabledGlobally {
-                    Text("Service Due and Wind Reminders are both turned off in Settings, which overrides this watch's settings. Turn them back on in Settings to restore this watch's own choices.")
-                } else if !isServiceDueReminderEnabledGlobally {
-                    Text("Service Due Reminders are turned off in Settings, which overrides this watch's setting. Turn it back on in Settings to restore this watch's own choice.")
-                } else if !isWindReminderEnabledGlobally {
-                    Text("Wind Reminders are turned off in Settings, which overrides this watch's setting. Turn it back on in Settings to restore this watch's own choice.")
+                // Only name whichever master switches are actually off, rather than a generic
+                // reminder every time — the greyed-out controls above already show which ones.
+                let disabledGlobally: [String] = {
+                    var names: [String] = []
+                    if !isServiceDueReminderEnabledGlobally { names.append("Service Due") }
+                    if !isWindReminderEnabledGlobally { names.append("Wind") }
+                    if !isPowerReserveDepletedReminderEnabledGlobally { names.append("Power Reserve Depleted") }
+                    return names
+                }()
+                if !disabledGlobally.isEmpty {
+                    Text("\(disabledGlobally.joined(separator: ", ")) Reminders are turned off in Settings, which overrides this watch's settings. Turn them back on in Settings to restore this watch's own choices.")
                 }
             }
         } else {
@@ -269,6 +282,16 @@ struct WatchDetailView: View {
         )
     }
 
+    private var powerReserveDepletedReminderEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { watch.isPowerReserveDepletedReminderEnabled ?? true },
+            set: { newValue in
+                watch.isPowerReserveDepletedReminderEnabled = newValue
+                NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
+            }
+        )
+    }
+
     private var strapsSection: some View {
         Section {
             if let attached = watch.attachedStrap {
@@ -300,6 +323,8 @@ struct WatchDetailView: View {
             Button("Add New Strap…") { isAddingStrap = true }
         } header: {
             SectionHeader("Straps")
+        } footer: {
+            Text("Straps are shared across your collection — attaching one here detaches it from wherever else it was worn.")
         }
     }
 
@@ -368,6 +393,8 @@ struct WatchDetailView: View {
             Button("Log Service…") { isLoggingService = true }
         } header: {
             SectionHeader("Service History")
+        } footer: {
+            Text("Completed work only — for a quartz watch, a battery swap belongs here too as a \"Battery Replacement\" entry.")
         }
     }
 
@@ -399,6 +426,8 @@ struct WatchDetailView: View {
             .onDelete(perform: deleteWearLogs)
         } header: {
             SectionHeader("Wear Log")
+        } footer: {
+            Text("Feeds Insights' wear frequency and cost-per-wear charts.")
         }
     }
 
@@ -408,6 +437,7 @@ struct WatchDetailView: View {
         // Wearing an automatic also recharges its mainspring (see Watch.lastPoweredDate), so
         // this can push powerReserveExpiresAt out; a no-op reschedule for manual/quartz watches.
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     private func deleteWearLogs(at offsets: IndexSet) {
@@ -417,6 +447,7 @@ struct WatchDetailView: View {
         }
         // Same reasoning as logWearToday() — an automatic's lastPoweredDate can depend on wearLogs.
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     @ViewBuilder
@@ -435,6 +466,10 @@ struct WatchDetailView: View {
                 .onDelete(perform: deleteWindLogs)
             } header: {
                 SectionHeader("Power Reserve")
+            } footer: {
+                Text(watch.movementType == .automatic
+                     ? "Tracks how long the mainspring runs before this watch needs winding — wearing it also recharges the reserve."
+                     : "Tracks how long the mainspring runs before this watch needs winding again.")
             }
         }
     }
@@ -446,6 +481,7 @@ struct WatchDetailView: View {
         }
         // Same reasoning as logWindNow() — deleting a wind can change lastPoweredDate/powerReserveExpiresAt.
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     @ViewBuilder
@@ -473,6 +509,7 @@ struct WatchDetailView: View {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     private var provenanceSection: some View {
@@ -499,6 +536,8 @@ struct WatchDetailView: View {
             Button("Add Document…") { isAddingProvenanceDoc = true }
         } header: {
             SectionHeader("Provenance")
+        } footer: {
+            Text("Receipts, certificates, and other ownership documents — PDFs or images.")
         }
     }
 
@@ -519,6 +558,8 @@ struct WatchDetailView: View {
             }
         } header: {
             SectionHeader("Fit Preview")
+        } footer: {
+            Text("Compares this watch's lug-to-lug against your wrist measurements from Settings.")
         }
     }
 }

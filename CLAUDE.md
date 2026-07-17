@@ -676,6 +676,40 @@ was genuinely misconfigured for what they were trying to test — but the underl
 Reminder blank silently disables the feature entirely, with no indication anywhere) was real, so
 `AddWatchView`'s Movement section footer was updated to say so explicitly. No code logic changed, no new
 tests. Both platforms build clean.
+**A fourth reminder type, Power Reserve Depleted, was added the same day** at the user's explicit request —
+premium-gated like the other three. Distinct from Wind Reminder on purpose: Wind Reminder is an *advance*
+warning that requires the user to have set a lead time (and does nothing at all if they haven't, per the
+gap just documented above); this new one fires at the exact moment `powerReserveExpiresAt` is reached, with
+no lead time to configure — a definitive "it's out now" nudge that works even for a watch whose owner never
+touched the Wind Reminder field. Given the same two-layer toggle treatment as Service Due/Wind (an app-wide
+master switch plus a per-watch override), not the lighter one-off treatment `Pickup Reminder` got, since
+depletion is a recurring, ongoing concern for a watch's whole lifetime, not a single transactional event.
+Implementation followed the exact shape already established for the other three: `NotificationManager`
+gained `resolvedPowerReserveDepletedDate` (pure, tested — 6 new cases in `NotificationManagerTests.swift`
+mirroring `resolvedWindReminderDate`'s exact shape) plus `schedulePowerReserveDepletedReminder`/
+`cancelPowerReserveDepletedReminder`, added to `rescheduleAll`. `Watch` gained
+`isPowerReserveDepletedReminderEnabled: Bool?` (post-`init`-only, same as the other two toggle fields).
+`WatchDetailView`'s Reminders section gained a matching Toggle (manual/automatic movement only, same
+condition as Wind Reminder) and a `powerReserveDepletedReminderEnabledBinding`; its footer's combinatorial
+"which switches are off" logic — already at 4 branches for 2 switches — was refactored to build a
+`joined(separator:)` list instead of hardcoding every combination, since a third switch would have needed 8
+branches written out by hand. Every call site that reschedules Wind Reminder after a state change
+(`logWindNow`/`logWearToday`/`deleteWindLogs`/`deleteWearLogs` in both `WatchDetailView` and `VaultGridView`,
+plus `AddWatchView.save()`) now reschedules this one alongside it, since they both depend on the same
+`powerReserveExpiresAt`. `SettingsView` gained the matching global toggle + footer update, and
+`reminderSettingsSignature` was extended to include it so a change reschedules everything, same as the
+other two. `DataBackupManager`'s `WatchBackup` DTO was extended immediately (not left as a gap to
+rediscover later) — round-trip test extended accordingly. Both platforms build clean and the full unit test
+suite passes.
+`WatchDetailView`'s ("the Workbench") Form sections gained footer descriptions 2026-07-17, matching the
+existing footer pattern already used elsewhere in the app (`SettingsView`, `AddWatchView`,
+`remindersSection`/`maintenanceSection`, which already had one): Overview, Specifications, Condition &
+Documentation, Straps, Service History, Wear Log, Power Reserve, Provenance, and Fit Preview each got a
+short footer clarifying non-obvious behavior (e.g. Straps' footer explains attaching a strap here detaches
+it from wherever else it was worn; Service History's footer notes a quartz battery swap belongs there too,
+as a "Battery Replacement" entry; Power Reserve's footer branches on `movementType` to mention that wearing
+an automatic also recharges it). Reminders and Maintenance sections were left untouched since they already
+had footers. Pure copy change, no logic touched — both platforms build clean, no new tests needed.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

@@ -120,6 +120,56 @@ struct NotificationManagerTests {
         #expect(resolved == nil)
     }
 
+    // MARK: - resolvedPowerReserveDepletedDate
+
+    @Test("resolvedPowerReserveDepletedDate returns the expiry date when every gate passes")
+    func powerReserveDepletedResolvesWhenAllGatesPass() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: true, globallyEnabled: true, perWatchEnabled: true, powerReserveExpiresAt: future
+        )
+        #expect(resolved == future)
+    }
+
+    @Test("resolvedPowerReserveDepletedDate is nil when not unlocked")
+    func powerReserveDepletedNilWhenLocked() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: false, globallyEnabled: true, perWatchEnabled: true, powerReserveExpiresAt: future
+        )
+        #expect(resolved == nil)
+    }
+
+    @Test("resolvedPowerReserveDepletedDate is nil when the app-wide master switch is off")
+    func powerReserveDepletedNilWhenGloballyDisabled() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: true, globallyEnabled: false, perWatchEnabled: true, powerReserveExpiresAt: future
+        )
+        #expect(resolved == nil)
+    }
+
+    @Test("resolvedPowerReserveDepletedDate is nil when this watch's own toggle is off")
+    func powerReserveDepletedNilWhenPerWatchDisabled() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: true, globallyEnabled: true, perWatchEnabled: false, powerReserveExpiresAt: future
+        )
+        #expect(resolved == nil)
+    }
+
+    @Test("resolvedPowerReserveDepletedDate is nil without an expiry date (e.g. quartz, or no power reserve spec yet)")
+    func powerReserveDepletedNilWithoutDate() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: true, globallyEnabled: true, perWatchEnabled: true, powerReserveExpiresAt: nil
+        )
+        #expect(resolved == nil)
+    }
+
+    @Test("resolvedPowerReserveDepletedDate is nil once the expiry date is already in the past")
+    func powerReserveDepletedNilWhenAlreadyPast() {
+        let resolved = NotificationManager.resolvedPowerReserveDepletedDate(
+            isUnlocked: true, globallyEnabled: true, perWatchEnabled: true, powerReserveExpiresAt: past
+        )
+        #expect(resolved == nil)
+    }
+
     // MARK: - resolvedPickupReminderDate
 
     @Test("resolvedPickupReminderDate returns the pickup date when unlocked and it's in the future")

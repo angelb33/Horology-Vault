@@ -9,25 +9,30 @@ import Foundation
 import SwiftData
 import UserNotifications
 
-/// Schedules and cancels the local "service due" and "wind reminder" notifications for a
-/// `Watch`. Both are gated behind `isUnlocked` (the app's one-time lifetime-unlock
-/// entitlement) — callers pass their own `Entitlements.isLifetimeUnlocked` read rather than
-/// this static enum querying SwiftData itself, matching how `ScheduledBackupManager` takes
-/// its gating input from the caller instead of reaching into `@AppStorage`/`@Query` directly.
-/// No backend involved either way — this is a V1, fully-local feature per the monetization plan.
-/// User-facing enable/disable toggles and the service interval have two layers: an app-wide
-/// master switch in Settings (`UserDefaults.standard`, the same store `@AppStorage` there
-/// reads/writes, since a static enum can't hold `@AppStorage` itself — same pattern as
-/// `ScheduledBackupManager`'s keys), and a per-watch override (`Watch.isServiceDueReminderEnabled`/
-/// `isWindReminderEnabled`, set from the Workbench's Reminders section). Both must allow a
-/// reminder for it to fire — the master switch is an AND gate, not a fallback: turning it off
-/// silences every watch regardless of that watch's own setting, and turning it back on restores
-/// each watch's individual choice rather than force-enabling everything.
+/// Schedules and cancels four local reminder notifications for a `Watch`: Service Due, Wind
+/// (an advance warning before power reserve runs out), Power Reserve Depleted (fires at the
+/// moment it actually runs out — distinct from Wind, see that function's doc comment), and
+/// Pickup (a one-off maintenance appointment reminder, see its own doc comment for why it's
+/// scoped differently from the other three). All four are gated behind `isUnlocked` (the app's
+/// one-time lifetime-unlock entitlement) — callers pass their own `Entitlements
+/// .isLifetimeUnlocked` read rather than this static enum querying SwiftData itself, matching
+/// how `ScheduledBackupManager` takes its gating input from the caller instead of reaching into
+/// `@AppStorage`/`@Query` directly. No backend involved either way — this is a V1, fully-local
+/// feature per the monetization plan. Service Due, Wind, and Power Reserve Depleted each have
+/// enable/disable toggles with two layers: an app-wide master switch in Settings
+/// (`UserDefaults.standard`, the same store `@AppStorage` there reads/writes, since a static enum
+/// can't hold `@AppStorage` itself — same pattern as `ScheduledBackupManager`'s keys), and a
+/// per-watch override (`Watch.isServiceDueReminderEnabled`/`isWindReminderEnabled`/
+/// `isPowerReserveDepletedReminderEnabled`, set from the Workbench's Reminders section). Both
+/// must allow a reminder for it to fire — the master switch is an AND gate, not a fallback:
+/// turning it off silences every watch regardless of that watch's own setting, and turning it
+/// back on restores each watch's individual choice rather than force-enabling everything.
 enum NotificationManager {
     // MARK: - UserDefaults keys (same store @AppStorage in SettingsView reads)
 
     static let isServiceDueReminderEnabledKey = "isServiceDueReminderEnabled"
     static let isWindReminderEnabledKey = "isWindReminderEnabled"
+    static let isPowerReserveDepletedReminderEnabledKey = "isPowerReserveDepletedReminderEnabled"
     static let serviceIntervalYearsKey = "serviceIntervalYears"
     static let defaultServiceIntervalYears = 5
 
@@ -129,6 +134,54 @@ enum NotificationManager {
             .removePendingNotificationRequests(withIdentifiers: [windReminderIdentifier(for: watch)])
     }
 
+    /// Distinct from Wind Reminder: Wind Reminder is an *advance* warning (fires before
+    /// depletion, based on a user-set lead time, and does nothing if that lead time was never
+    /// set); this one fires at the moment of depletion itself — a definitive "it's out now"
+    /// nudge that doesn't depend on the user having configured a lead time at all. Same
+    /// reasoning as `resolvedServiceDueDate`.
+    static func resolvedPowerReserveDepletedDate(
+        isUnlocked: Bool,
+        globallyEnabled: Bool,
+        perWatchEnabled: Bool,
+        powerReserveExpiresAt: Date?,
+        now: Date = Date()
+    ) -> Date? {
+        guard isUnlocked, globallyEnabled, perWatchEnabled else { return nil }
+        guard let powerReserveExpiresAt, powerReserveExpiresAt > now else { return nil }
+        return powerReserveExpiresAt
+    }
+
+    static func schedulePowerReserveDepletedReminder(for watch: Watch, isUnlocked: Bool) {
+        let center = UNUserNotificationCenter.current()
+        let identifier = powerReserveDepletedIdentifier(for: watch)
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+
+        let globallyEnabled = UserDefaults.standard.object(forKey: isPowerReserveDepletedReminderEnabledKey) as? Bool ?? true
+        guard let depletedDate = resolvedPowerReserveDepletedDate(
+            isUnlocked: isUnlocked,
+            globallyEnabled: globallyEnabled,
+            perWatchEnabled: watch.isPowerReserveDepletedReminderEnabled ?? true,
+            powerReserveExpiresAt: watch.powerReserveExpiresAt
+        ) else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Power Reserve Depleted"
+        content.body = "\(watch.brand) \(watch.model)'s power reserve has run out — time to wind it."
+        content.sound = .default
+
+        let dateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: depletedDate
+        )
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        center.add(request)
+    }
+
+    static func cancelPowerReserveDepletedReminder(for watch: Watch) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [powerReserveDepletedIdentifier(for: watch)])
+    }
+
     /// A one-off reminder for `maintenanceExpectedPickupDate` — unlike Service Due/Wind, there's
     /// no separate app-wide master switch or per-watch toggle for this one; it's a transactional
     /// appointment reminder (only exists while a watch is actually checked in for maintenance)
@@ -180,6 +233,7 @@ enum NotificationManager {
         for watch in watches {
             scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
             scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+            schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
             schedulePickupReminder(for: watch, isUnlocked: isUnlocked)
         }
     }
@@ -192,6 +246,10 @@ enum NotificationManager {
 
     private static func windReminderIdentifier(for watch: Watch) -> String {
         "wind-reminder-\(String(describing: watch.persistentModelID))"
+    }
+
+    private static func powerReserveDepletedIdentifier(for watch: Watch) -> String {
+        "power-reserve-depleted-\(String(describing: watch.persistentModelID))"
     }
 
     private static func pickupReminderIdentifier(for watch: Watch) -> String {

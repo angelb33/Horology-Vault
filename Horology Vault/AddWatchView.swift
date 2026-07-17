@@ -453,6 +453,7 @@ struct AddWatchView: View {
         }
         NotificationManager.scheduleServiceDueReminder(for: targetWatch, isUnlocked: isUnlocked)
         NotificationManager.scheduleWindReminder(for: targetWatch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: targetWatch, isUnlocked: isUnlocked)
         dismiss()
     }
 }

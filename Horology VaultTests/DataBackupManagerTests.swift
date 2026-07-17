@@ -65,6 +65,7 @@ struct DataBackupManagerTests {
         watch.serviceIntervalYears = 4
         watch.isServiceDueReminderEnabled = false
         watch.isWindReminderEnabled = true
+        watch.isPowerReserveDepletedReminderEnabled = false
         watch.maintenanceDropOffDate = dropOffDate
         watch.maintenanceExpectedPickupDate = expectedPickupDate
         watch.maintenanceNotes = "Left for full service and movement overhaul"
@@ -93,6 +94,7 @@ struct DataBackupManagerTests {
         #expect(restored.serviceIntervalYears == 4)
         #expect(restored.isServiceDueReminderEnabled == false)
         #expect(restored.isWindReminderEnabled == true)
+        #expect(restored.isPowerReserveDepletedReminderEnabled == false)
         #expect(restored.serialNumber == "12345678")
         #expect(restored.caliber == "8800")
         #expect(restored.caseMaterial == "Stainless Steel")

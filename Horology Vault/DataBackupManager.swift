@@ -194,6 +194,7 @@ enum DataBackupManager {
                 serviceIntervalYears: watch.serviceIntervalYears,
                 isServiceDueReminderEnabled: watch.isServiceDueReminderEnabled,
                 isWindReminderEnabled: watch.isWindReminderEnabled,
+                isPowerReserveDepletedReminderEnabled: watch.isPowerReserveDepletedReminderEnabled,
                 serialNumber: watch.serialNumber,
                 caliber: watch.caliber,
                 caseMaterial: watch.caseMaterial,
@@ -292,6 +293,7 @@ enum DataBackupManager {
             watch.serviceIntervalYears = watchBackup.serviceIntervalYears
             watch.isServiceDueReminderEnabled = watchBackup.isServiceDueReminderEnabled
             watch.isWindReminderEnabled = watchBackup.isWindReminderEnabled
+            watch.isPowerReserveDepletedReminderEnabled = watchBackup.isPowerReserveDepletedReminderEnabled
             watch.maintenanceDropOffDate = watchBackup.maintenanceDropOffDate
             watch.maintenanceExpectedPickupDate = watchBackup.maintenanceExpectedPickupDate
             watch.maintenanceNotes = watchBackup.maintenanceNotes
@@ -396,6 +398,7 @@ private struct WatchBackup: Codable {
     var serviceIntervalYears: Int?
     var isServiceDueReminderEnabled: Bool?
     var isWindReminderEnabled: Bool?
+    var isPowerReserveDepletedReminderEnabled: Bool?
     // Collector/insurance detail fields (added 2026-07-17, same session as the fields above).
     var serialNumber: String?
     var caliber: String?

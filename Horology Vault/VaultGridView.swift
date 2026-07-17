@@ -141,6 +141,7 @@ struct VaultGridView: View {
         // Wearing an automatic also recharges its mainspring (see Watch.lastPoweredDate), so
         // this can push powerReserveExpiresAt out; a no-op reschedule for manual/quartz watches.
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     /// Quicker access to Power Reserve's "Wind Watch" action (normally reached via
@@ -150,6 +151,7 @@ struct VaultGridView: View {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
 }

@@ -23,6 +23,7 @@ struct SettingsView: View {
 
     @AppStorage(NotificationManager.isServiceDueReminderEnabledKey) private var isServiceDueReminderEnabled = true
     @AppStorage(NotificationManager.isWindReminderEnabledKey) private var isWindReminderEnabled = true
+    @AppStorage(NotificationManager.isPowerReserveDepletedReminderEnabledKey) private var isPowerReserveDepletedReminderEnabled = true
     @AppStorage(NotificationManager.serviceIntervalYearsKey) private var serviceIntervalYears = NotificationManager.defaultServiceIntervalYears
 
     @State private var csvExportDocument: CSVDocument?
@@ -374,10 +375,11 @@ struct SettingsView: View {
                     }
                 }
                 Toggle("Wind Reminders", isOn: $isWindReminderEnabled)
+                Toggle("Power Reserve Depleted Reminders", isOn: $isPowerReserveDepletedReminderEnabled)
             } header: {
                 SectionHeader("Reminders")
             } footer: {
-                Text("These are app-wide master switches — turning one off silences that reminder for every watch, and turning it back on restores each watch's own choice. Each watch also has its own Reminders section (with its own interval override) on its page. Wind Reminders need a movement type, power reserve, and reminder lead time set per watch in Edit Watch.")
+                Text("These are app-wide master switches — turning one off silences that reminder for every watch, and turning it back on restores each watch's own choice. Each watch also has its own Reminders section (with its own interval override) on its page. Wind Reminders need a movement type, power reserve, and reminder lead time set per watch in Edit Watch; Power Reserve Depleted Reminders only need a movement type and power reserve — no lead time, since it fires at depletion itself rather than before it.")
             }
         } else {
             Section {
@@ -401,11 +403,12 @@ struct SettingsView: View {
         }
     }
 
-    /// Single combined value to watch instead of three separate `.onChange` modifiers — stacking
-    /// several more `.onChange` calls onto `body`'s already-long modifier chain pushed the type
-    /// checker over its time limit ("unable to type-check this expression in reasonable time").
+    /// Single combined value to watch instead of separate `.onChange` modifiers per setting —
+    /// stacking several more `.onChange` calls onto `body`'s already-long modifier chain pushed
+    /// the type checker over its time limit ("unable to type-check this expression in reasonable
+    /// time").
     private var reminderSettingsSignature: String {
-        "\(isServiceDueReminderEnabled)-\(isWindReminderEnabled)-\(serviceIntervalYears)"
+        "\(isServiceDueReminderEnabled)-\(isWindReminderEnabled)-\(isPowerReserveDepletedReminderEnabled)-\(serviceIntervalYears)"
     }
 
     private func rescheduleAllReminders() {
