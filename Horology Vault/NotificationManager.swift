@@ -39,15 +39,35 @@ enum NotificationManager {
         }
     }
 
+    /// The gating decision itself, pulled out as a pure function — same reasoning `FitCalculator`/
+    /// `PurchaseManager.updateEntitlementsRecord` were extracted for: this used to be inline
+    /// inside `scheduleServiceDueReminder` and, because it touched `UNUserNotificationCenter`
+    /// directly, was completely untested (only the `Watch.serviceDueDate` it reads was). Returns
+    /// the date to schedule for, or `nil` if any gate fails or the date's already past.
+    static func resolvedServiceDueDate(
+        isUnlocked: Bool,
+        globallyEnabled: Bool,
+        perWatchEnabled: Bool,
+        dueDate: Date?,
+        now: Date = Date()
+    ) -> Date? {
+        guard isUnlocked, globallyEnabled, perWatchEnabled else { return nil }
+        guard let dueDate, dueDate > now else { return nil }
+        return dueDate
+    }
+
     static func scheduleServiceDueReminder(for watch: Watch, isUnlocked: Bool) {
         let center = UNUserNotificationCenter.current()
         let identifier = serviceDueIdentifier(for: watch)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
 
-        guard isUnlocked else { return }
-        guard UserDefaults.standard.object(forKey: isServiceDueReminderEnabledKey) as? Bool ?? true else { return }
-        guard watch.isServiceDueReminderEnabled ?? true else { return }
-        guard let dueDate = watch.serviceDueDate, dueDate > Date() else { return }
+        let globallyEnabled = UserDefaults.standard.object(forKey: isServiceDueReminderEnabledKey) as? Bool ?? true
+        guard let dueDate = resolvedServiceDueDate(
+            isUnlocked: isUnlocked,
+            globallyEnabled: globallyEnabled,
+            perWatchEnabled: watch.isServiceDueReminderEnabled ?? true,
+            dueDate: watch.serviceDueDate
+        ) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "Service Due"
@@ -65,15 +85,31 @@ enum NotificationManager {
             .removePendingNotificationRequests(withIdentifiers: [serviceDueIdentifier(for: watch)])
     }
 
+    /// Same reasoning as `resolvedServiceDueDate`.
+    static func resolvedWindReminderDate(
+        isUnlocked: Bool,
+        globallyEnabled: Bool,
+        perWatchEnabled: Bool,
+        windReminderDate: Date?,
+        now: Date = Date()
+    ) -> Date? {
+        guard isUnlocked, globallyEnabled, perWatchEnabled else { return nil }
+        guard let windReminderDate, windReminderDate > now else { return nil }
+        return windReminderDate
+    }
+
     static func scheduleWindReminder(for watch: Watch, isUnlocked: Bool) {
         let center = UNUserNotificationCenter.current()
         let identifier = windReminderIdentifier(for: watch)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
 
-        guard isUnlocked else { return }
-        guard UserDefaults.standard.object(forKey: isWindReminderEnabledKey) as? Bool ?? true else { return }
-        guard watch.isWindReminderEnabled ?? true else { return }
-        guard let reminderDate = watch.windReminderDate, reminderDate > Date() else { return }
+        let globallyEnabled = UserDefaults.standard.object(forKey: isWindReminderEnabledKey) as? Bool ?? true
+        guard let reminderDate = resolvedWindReminderDate(
+            isUnlocked: isUnlocked,
+            globallyEnabled: globallyEnabled,
+            perWatchEnabled: watch.isWindReminderEnabled ?? true,
+            windReminderDate: watch.windReminderDate
+        ) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "Wind Reminder"
@@ -98,13 +134,27 @@ enum NotificationManager {
     /// appointment reminder (only exists while a watch is actually checked in for maintenance)
     /// rather than a recurring, always-on setting, so the extra configuration layer didn't seem
     /// worth it. Still gated behind `isUnlocked`, same as the other two.
+    /// Same reasoning as `resolvedServiceDueDate`, minus the two enable-toggle gates this
+    /// reminder deliberately doesn't have — see this function's own doc comment above.
+    static func resolvedPickupReminderDate(
+        isUnlocked: Bool,
+        expectedPickupDate: Date?,
+        now: Date = Date()
+    ) -> Date? {
+        guard isUnlocked else { return nil }
+        guard let expectedPickupDate, expectedPickupDate > now else { return nil }
+        return expectedPickupDate
+    }
+
     static func schedulePickupReminder(for watch: Watch, isUnlocked: Bool) {
         let center = UNUserNotificationCenter.current()
         let identifier = pickupReminderIdentifier(for: watch)
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
 
-        guard isUnlocked else { return }
-        guard let pickupDate = watch.maintenanceExpectedPickupDate, pickupDate > Date() else { return }
+        guard let pickupDate = resolvedPickupReminderDate(
+            isUnlocked: isUnlocked,
+            expectedPickupDate: watch.maintenanceExpectedPickupDate
+        ) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "Ready for Pickup"

@@ -590,6 +590,37 @@ the same issue type, before the next autosave. `@Suite(.serialized)` was kept on
 since it's still legitimate insurance against racing `WatchModelTests`' own `UserDefaults`-touching tests.
 Both platforms build clean and the full unit test suite passes (confirmed stable across repeated runs, not
 just once, given the flakiness this specific bug could have masqueraded as).
+The user then asked to verify the premium Reminders feature is working. Two things happened: **first**, an
+attempt to actually launch and drive the app to test it live — `osascript -e 'tell application "System
+Events" to get name of first process'` confirmed the sandbox still has no Apple Events/Accessibility
+permission (same longstanding limitation noted throughout this file), so no UI clicking/reading is possible
+from inside a session. The macOS build *was* launched directly (`open` on the built `.app`) and confirmed to
+start and stay running with no crash/fault/error in the system log over the following 30 seconds, then
+quit cleanly — the minimal "does the entrypoint even resolve" bar, not a substitute for driving it.
+**Second, and the more valuable outcome**: this prompted checking actual test coverage for reminders, which
+turned up a real gap — `NotificationManager`'s gating logic (the guard chains inside
+`scheduleServiceDueReminder`/`scheduleWindReminder`/`schedulePickupReminder` deciding *whether* and *for what
+date* to schedule) had **zero test coverage**, ever, despite being the actual decision logic for a paid
+feature — only the `Watch` properties it reads (`serviceDueDate`, `windReminderDate`) were tested. Root
+cause: that logic was inline, mixed directly with `UNUserNotificationCenter` side-effecting calls, making it
+untestable from the test target — the exact situation `FitCalculator`/`PurchaseManager.updateEntitlementsRecord`
+were extracted to fix previously, per this file's own documented lesson to catch this pattern going forward.
+Fixed by extracting three pure functions — `resolvedServiceDueDate`/`resolvedWindReminderDate`/
+`resolvedPickupReminderDate` — each taking plain `Bool`/`Date?` parameters (no `Watch`, no `UserDefaults`, no
+`UNUserNotificationCenter`) and returning the `Date?` to schedule for for or `nil` if any gate fails or the
+date's already past; the three `scheduleXReminder` functions now just resolve their inputs (read
+`UserDefaults`/`Watch` once) and delegate the actual decision to these. Zero behavior change — same guard
+order, same conditions, just relocated and made independently callable. New `NotificationManagerTests.swift`
+covers all three exhaustively: every individual gate failing in isolation (locked, globally disabled,
+per-watch disabled, missing date, already-past date), plus the all-gates-pass success case — 16 tests total.
+Both platforms build clean and the full unit test suite passes.
+**What still needs the user's own manual verification, given the sandbox limitation above**: the actual
+StoreKit purchase flow (compounded by the still-open macOS-native StoreKit Testing bug documented earlier in
+this file — `ASDErrorDomain 825` — meaning iOS Simulator is the more reliable target for that specific
+check), visually confirming Settings' Reminders toggles/pickers actually reflect and drive the right state,
+and confirming a scheduled local notification actually *fires* at its trigger time (which also just isn't
+something a fast automated check can observe — it requires waiting for real time to pass, or manipulating
+the system clock, with the app running).
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
