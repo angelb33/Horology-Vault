@@ -40,9 +40,18 @@ struct ContentView: View {
 
     @State private var selection: Section? = .vault
     @State private var purchaseManager = PurchaseManager()
+    @State private var isShowingNotifications = false
     @Environment(\.modelContext) private var modelContext
     @Query private var watches: [Watch]
     @Query private var entitlements: [Entitlements]
+
+    /// Only counts issues the user hasn't already acknowledged (via closing the Notifications
+    /// popover) — see `NotificationsAcknowledgment`'s doc comment. For why the underlying
+    /// signals are free and don't replicate the paid Reminders feature, see
+    /// `Watch.openNotificationCount`'s doc comment.
+    private var unacknowledgedNotificationCount: Int {
+        NotificationsAcknowledgment.unacknowledgedCount(for: watches)
+    }
 
     @AppStorage("colorSchemePreference") private var colorSchemePreference: ColorSchemePreference = .system
     @AppStorage("accentColorOption") private var accentColorOption: AccentColorOption = .blue
@@ -125,6 +134,11 @@ struct ContentView: View {
             #if os(macOS)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    notificationsBellButton
+                }
+            }
         } detail: {
             switch selection {
             case .vault, nil:
@@ -144,6 +158,31 @@ struct ContentView: View {
             case .settings:
                 SettingsView()
             }
+        }
+    }
+
+    /// Lives on the sidebar's own toolbar (not any individual section's) so it's reachable
+    /// regardless of which detail view is showing — matches the OS notification-center pattern
+    /// of being anchored to a persistent chrome element rather than tucked into one screen.
+    private var notificationsBellButton: some View {
+        Button {
+            isShowingNotifications = true
+        } label: {
+            Image(systemName: unacknowledgedNotificationCount > 0 ? "bell.badge.fill" : "bell")
+        }
+        .overlay(alignment: .topTrailing) {
+            if unacknowledgedNotificationCount > 0 {
+                Text("\(unacknowledgedNotificationCount)")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(.red, in: Circle())
+                    .offset(x: 10, y: -8)
+            }
+        }
+        .accessibilityLabel(unacknowledgedNotificationCount > 0 ? "Notifications, \(unacknowledgedNotificationCount) new" : "Notifications")
+        .popover(isPresented: $isShowingNotifications) {
+            NotificationsPanelView()
         }
     }
 

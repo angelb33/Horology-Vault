@@ -525,6 +525,71 @@ delete a `Strap` directly: `Strap.attachedWatch` has no explicit `deleteRule`, w
 manual detach-before-delete step needed. Pure UI/CRUD-wiring change, no new business logic (the delete
 functions mirror the shape of already-untested UI glue like `logWearToday()`), so no new tests; both
 platforms build clean.
+A new feature was brainstormed and built the same day: **a free Notifications panel**, a live-computed
+digest of watches currently needing attention, reached via a bell button (with a red numeric badge) on the
+sidebar's own toolbar in `ContentView.swift` — placed there rather than inside any one section's toolbar
+so it's reachable regardless of which detail view is showing, and presented as a `.popover` with its own
+internal `NavigationStack` (avoids any cross-view navigation-state coordination with whichever section
+happens to be selected). Three scope decisions were made explicitly with the user before writing any code:
+(1) live-computed from existing signals, not a persisted notification history — no new data model, no
+`UNUserNotificationCenterDelegate` hook, can't drift from reality; (2) toolbar bell + badge over a new
+sidebar section, since Insights/Maintenance already surface adjacent information and a third destination
+would be redundant; (3) **free**, not gated behind the lifetime unlock. That third point got its own
+explicit gating-safety discussion before building, since it's easy to accidentally cannibalize a paid
+feature this way — the reasoning that made it safe: the panel only surfaces facts already free elsewhere
+(the Vault card badges, `MaintenanceView`'s grouping) so it adds zero new *information*, and critically it's
+**pull, not push** (only visible if the user opens the app and taps the bell) and only reflects **already-
+true facts, never predictions** ("already depleted," not "will deplete in 3 hours") — both of which are
+exactly the paid Reminders feature's actual differentiators (proactive delivery without opening the app,
+lead-time warnings before a problem occurs). That boundary is written down explicitly in code comments (on
+`Watch`'s new predicates and `NotificationsPanelView`'s header) as a guardrail: if this panel is ever
+extended to show upcoming/predicted items, that would cross into replicating the paid feature and the
+gating decision should be revisited.
+Three new `Watch` computed properties back the digest, defined once so the panel's list and the toolbar
+badge count can never disagree: `hasOpenPowerReserveNotification` (mirrors `isPowerReserveDepleted`),
+`hasOpenServiceNotification` (`isServiceDue && !isOutForMaintenance`, the same filter `MaintenanceView`
+already uses for its "Service Due" bucket), and `hasOpenPickupNotification` (out for maintenance with an
+expected pickup date that's already passed — watches with no expected date set never trigger this, since
+there's nothing to compare against). `openNotificationCount` sums all three (0–2 in practice, since
+service-due and pickup-ready are mutually exclusive but power-reserve-depleted can co-occur with either) —
+7 new tests in `WatchModelTests.swift` cover all four properties individually and the multi-issue-at-once
+sum case. `NotificationsPanelView.swift` is a new file: two `Section`s (Power Reserve, Maintenance — the
+latter combining both service-due and ready-for-pickup rows rather than two separately-headered sections
+for the same word), each row a `NavigationLink(value: watch)` into `WatchDetailView` via the same
+`.navigationDestination(for: Watch.self)` pattern `VaultGridView`/`MaintenanceView`/`LearnHubView` already
+use, with a positive "All Caught Up" / `checkmark.circle` empty state matching `DepletedWatchesChartView`'s
+precedent for "empty is the good outcome" framing. `bell`/`bell.fill`/`bell.badge.fill`/`bell.badge` were
+all verified to exist via the established `NSImage`-check practice before use. No new stored `Watch` fields
+(everything is computed from data that already exists), so `DataBackupManager` needed no changes this time.
+Both platforms build clean and the full unit test suite passes.
+**Same-day follow-up**: the user asked for the badge count to clear once acknowledged, without removing
+anything from the panel's own list. New `NotificationsAcknowledgment.swift` (a static-only enum, no view,
+matching `NotificationManager`/`ScheduledBackupManager`'s pattern) tracks which specific open issues have
+been *seen* via a snapshot stored in `UserDefaults.standard` — `acknowledgeAll(_:)` **replaces** the stored
+set with the current set of `Watch.openNotificationKeys` (a new per-issue stable string, one per open
+predicate — `"\(persistentModelID)-power"` etc. — distinct from `openNotificationCount`, which is just the
+total). Replacing rather than unioning is what makes a resolved-then-reopened issue correctly count as new
+again automatically: its key simply won't be in the next snapshot once resolved, no separate pruning/expiry
+step needed. `unacknowledgedCount(for:)` is the set difference between currently-open keys and the stored
+snapshot. Acknowledgment fires automatically on `.onDisappear` when the Notifications popover closes —
+matching how the OS's own notification center clears its badge once you've viewed the list, no separate
+"mark as read" action needed. `ContentView`'s bell badge was renamed `unacknowledgedNotificationCount` and
+now reads through this instead of the raw per-watch total.
+**A real, non-flaky bug surfaced while writing `NotificationsAcknowledgmentTests`**: the one test comparing
+two *different* watches' keys failed consistently (not intermittently) even after adding `@Suite(.serialized)`
+to rule out cross-suite `UserDefaults` races. Root-caused via a throwaway `swift` script (see the diagnosis
+in `NotificationsAcknowledgmentTests`'s and `Watch.openNotificationKeys`'s doc comments): `PersistentIdentifier`'s
+`==`/`Hashable` conformance is correct even before a model is saved, but its `String(describing:)`
+representation collapses to the same generic placeholder string for *every* unsaved model — only after an
+actual save does the description include a genuinely unique per-row identifier. Fixed the test by inserting
+*and saving* watches into a real in-memory `ModelContext` before comparing them (a single-watch test never
+hit this, which is why 3 of the 4 tests already passed). This is a real, if narrow and self-correcting,
+limitation of `openNotificationKeys` in the shipped app too — documented directly on that property rather
+than engineered around, since it only matters for two brand-new watches created in the same instant with
+the same issue type, before the next autosave. `@Suite(.serialized)` was kept on the test suite regardless,
+since it's still legitimate insurance against racing `WatchModelTests`' own `UserDefaults`-touching tests.
+Both platforms build clean and the full unit test suite passes (confirmed stable across repeated runs, not
+just once, given the flakiness this specific bug could have masqueraded as).
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

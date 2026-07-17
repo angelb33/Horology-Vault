@@ -184,6 +184,70 @@ final class Watch {
         maintenanceDropOffDate != nil
     }
 
+    // MARK: - Notifications panel digest predicates
+    //
+    // These back the free, live-computed Notifications panel (`NotificationsPanelView`) —
+    // deliberately defined once here rather than duplicated inline in both the panel and
+    // `ContentView`'s badge count, so the two can't silently disagree. Each mirrors a signal
+    // that's already free elsewhere in the app (the Vault card badges, `MaintenanceView`'s
+    // grouping) — the panel is a convenience aggregation over already-free facts, not new
+    // information, and deliberately only reflects what's already true rather than predicting
+    // what's coming up (that lead-time-warning behavior stays exclusive to the paid Reminders
+    // feature). See CLAUDE.md for the full reasoning behind this scope boundary.
+
+    /// Mirrors the free depleted badge on `WatchCardView`.
+    var hasOpenPowerReserveNotification: Bool {
+        isPowerReserveDepleted
+    }
+
+    /// Same filter `MaintenanceView` uses for its "Service Due" bucket — excludes watches
+    /// already out for maintenance, since that's already being addressed.
+    var hasOpenServiceNotification: Bool {
+        isServiceDue && !isOutForMaintenance
+    }
+
+    /// A watch out for maintenance whose expected pickup date has already passed — ready (or
+    /// overdue) to be picked up. Watches with no expected pickup date set never trigger this,
+    /// since there's no date to compare against.
+    var hasOpenPickupNotification: Bool {
+        guard isOutForMaintenance, let maintenanceExpectedPickupDate else { return false }
+        return maintenanceExpectedPickupDate <= Date()
+    }
+
+    /// Total open notification-worthy issues for this watch (0–2 in practice — a watch can be
+    /// simultaneously out of power and overdue for service, but service-due and pickup-ready are
+    /// mutually exclusive since the latter requires already being out for maintenance). Backs the
+    /// Notifications panel's toolbar badge count.
+    var openNotificationCount: Int {
+        [hasOpenPowerReserveNotification, hasOpenServiceNotification, hasOpenPickupNotification]
+            .filter { $0 }
+            .count
+    }
+
+    /// One stable string per currently-open issue (not per watch) — lets
+    /// `NotificationsAcknowledgment` track exactly which issues the user has already seen,
+    /// separately from how many are currently open. Recomputed fresh every time (never stored),
+    /// so a resolved-then-reopened issue naturally gets a "new" key again the next time this is
+    /// read — nothing to reconcile or expire manually.
+    ///
+    /// Known, accepted limitation: `String(describing: persistentModelID)` only becomes
+    /// genuinely unique per watch once SwiftData has actually saved it — an unsaved model's
+    /// identifier prints as a generic placeholder string shared by every other unsaved model
+    /// (confirmed by direct experimentation; `PersistentIdentifier`'s own `==`/`Hashable` are
+    /// correct pre-save, only its `description` isn't). In practice this only matters for a
+    /// narrow, self-correcting window — two brand-new watches created in the same moment, both
+    /// immediately having an identical open-issue type, before the next autosave — after which
+    /// the IDs resolve to their real, stable values. Not worth extra complexity to close; see
+    /// `NotificationsAcknowledgmentTests` for how this was diagnosed.
+    var openNotificationKeys: [String] {
+        let id = String(describing: persistentModelID)
+        var keys: [String] = []
+        if hasOpenPowerReserveNotification { keys.append("\(id)-power") }
+        if hasOpenServiceNotification { keys.append("\(id)-service") }
+        if hasOpenPickupNotification { keys.append("\(id)-pickup") }
+        return keys
+    }
+
     /// Wear entries logged since the watch's last service (or since acquisition, if it's never been
     /// serviced) — surfaces watches accumulating wear without a matching service interval. Shared so the
     /// Insights dashboard's wear-vs-maintenance chart and any future consumer can't disagree, same reasoning

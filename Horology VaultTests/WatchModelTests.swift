@@ -350,6 +350,70 @@ struct WatchModelTests {
         #expect(watch.isOutForMaintenance == true)
     }
 
+    // MARK: - Notifications panel digest predicates
+
+    @Test("hasOpenPowerReserveNotification mirrors isPowerReserveDepleted")
+    func hasOpenPowerReserveNotificationMirrorsDepleted() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -50, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(watch.hasOpenPowerReserveNotification == true)
+    }
+
+    @Test("hasOpenServiceNotification is true when due and not out for maintenance")
+    func hasOpenServiceNotificationTrueWhenDue() {
+        let watch = makeWatch(acquisitionDate: Calendar.current.date(byAdding: .year, value: -6, to: .now)!)
+        #expect(watch.hasOpenServiceNotification == true)
+    }
+
+    @Test("hasOpenServiceNotification is false when due but already out for maintenance")
+    func hasOpenServiceNotificationFalseWhenOutForMaintenance() {
+        let watch = makeWatch(acquisitionDate: Calendar.current.date(byAdding: .year, value: -6, to: .now)!)
+        watch.maintenanceDropOffDate = .now
+        #expect(watch.isServiceDue == true)
+        #expect(watch.hasOpenServiceNotification == false)
+    }
+
+    @Test("hasOpenPickupNotification is false without an expected pickup date")
+    func hasOpenPickupNotificationFalseWithoutExpectedDate() {
+        let watch = makeWatch()
+        watch.maintenanceDropOffDate = .now
+        #expect(watch.hasOpenPickupNotification == false)
+    }
+
+    @Test("hasOpenPickupNotification is true once the expected pickup date has passed")
+    func hasOpenPickupNotificationTrueOncePastDue() {
+        let watch = makeWatch()
+        watch.maintenanceDropOffDate = Calendar.current.date(byAdding: .day, value: -5, to: .now)!
+        watch.maintenanceExpectedPickupDate = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
+        #expect(watch.hasOpenPickupNotification == true)
+    }
+
+    @Test("hasOpenPickupNotification is false while the expected pickup date is still in the future")
+    func hasOpenPickupNotificationFalseBeforeDue() {
+        let watch = makeWatch()
+        watch.maintenanceDropOffDate = .now
+        watch.maintenanceExpectedPickupDate = Calendar.current.date(byAdding: .day, value: 5, to: .now)!
+        #expect(watch.hasOpenPickupNotification == false)
+    }
+
+    @Test("openNotificationCount sums every open predicate, including more than one at once")
+    func openNotificationCountSumsAllPredicates() {
+        let watch = makeWatch(acquisitionDate: Calendar.current.date(byAdding: .year, value: -6, to: .now)!)
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -50, to: .now)!)]
+        watch.powerReserveHours = 42
+        // Due for service AND out of power at the same time, not out for maintenance.
+        #expect(watch.openNotificationCount == 2)
+    }
+
+    @Test("openNotificationCount is 0 for a watch with no open issues")
+    func openNotificationCountIsZeroWhenClean() {
+        let watch = makeWatch()
+        #expect(watch.openNotificationCount == 0)
+    }
+
     // MARK: - daysSincePowerReserveDepleted
 
     @Test("daysSincePowerReserveDepleted is nil while the watch still has power")
