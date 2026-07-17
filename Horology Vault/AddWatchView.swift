@@ -304,7 +304,7 @@ struct AddWatchView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if movementType == .manual || movementType == .automatic {
-                    Text("Power Reserve is how many hours the mainspring runs before needing winding again. Wind Reminder is how long before it runs out you'd like to be warned.")
+                    Text("Power Reserve is how many hours the mainspring runs before needing winding again. Wind Reminder is how long before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked.")
                 } else if movementType == .quartz {
                     Text("Quartz watches run on a battery, not a wind — there's nothing to track here. Log a battery replacement as a normal service record instead.")
                 }

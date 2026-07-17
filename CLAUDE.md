@@ -621,6 +621,61 @@ check), visually confirming Settings' Reminders toggles/pickers actually reflect
 and confirming a scheduled local notification actually *fires* at its trigger time (which also just isn't
 something a fast automated check can observe — it requires waiting for real time to pass, or manipulating
 the system clock, with the app running).
+**A real bug was found and fixed the same day**, when the user reported not receiving a Wind Reminder while
+running the app under the debugger on iOS Simulator: this app had **no `UNUserNotificationCenterDelegate`
+assigned, anywhere** (confirmed by grep — zero matches for `UNUserNotificationCenterDelegate`/`willPresent`
+across the whole project). Without one, iOS/macOS silently suppress a locally scheduled notification's
+banner/sound whenever it fires while the app is already in the foreground — exactly what happens while
+actively debugging (the app stays frontmost), and easily what happens during ordinary use too (the app open,
+a reminder's trigger time arrives). The notification was still being scheduled and firing correctly
+internally; it just never became visible. Fixed with a new `NotificationDelegate.swift` (`NSObject`-
+subclassing `UNUserNotificationCenterDelegate`, a `.shared` singleton since `UNUserNotificationCenter
+.delegate` is a weak reference and needs something to keep it alive) implementing `willPresent` to opt back
+into `[.banner, .list, .sound]` — there's no reason this app would ever want to suppress a reminder while
+active. Assigned from `Horology_Vault_App.init()`, same early-assignment timing
+`ScheduledBackupManager.registerBackgroundTask` already required (must happen before the app finishes
+launching, not from a `View.task` like most other setup in this app does). This fix applies to all three
+reminder types (Service Due, Wind, Pickup), not just the Wind Reminder that surfaced it. Not unit-testable
+(requires the OS to actually invoke the delegate callback, which a unit test can't simulate meaningfully) —
+same reasoning `NotificationManager`'s actual `UNUserNotificationCenter` side-effecting calls aren't tested
+either, only the pure gating-decision logic extracted from them is. Both platforms build clean.
+**Still worth checking if this alone doesn't fully explain what the user saw**: the other, more mundane
+reasons a Wind Reminder specifically might never schedule at all — `windReminderDate` requires *all* of
+movement type set to manual/automatic, `powerReserveHours` set, `windReminderLeadTimeHours` set, *and* at
+least one wind (or, for automatic, wear) already logged so `lastPoweredDate` isn't nil; missing any one of
+those means `NotificationManager.scheduleWindReminder` silently has nothing to schedule, no error surfaced
+anywhere. Worth walking through if the delegate fix alone doesn't resolve what was reported.
+**A second, unrelated iOS-only bug was reported in the same breath**: opening the Notifications panel on
+iPhone had no way to close it — no back button, and it filled the whole screen so there was no "outside" to
+tap. Root cause: `NotificationsPanelView` is presented via `.popover(isPresented:)` from `ContentView`'s
+bell button, and on macOS that's a real anchored dropdown (tap outside closes it, which is why this wasn't
+caught earlier — all of this session's own build verification only exercises macOS/iOS builds, not visual
+behavior). On compact-width screens (iPhone), SwiftUI automatically *adapts* `.popover` to a full-screen
+presentation instead — a tiny anchored dropdown doesn't make sense on a small screen — and the panel simply
+never had a dismiss button, since it was designed around the macOS interaction model. Fixed by adding an
+`@Environment(\.dismiss)` + a trailing "Done" `ToolbarItem` (`.confirmationAction` placement), which closes
+it on every platform regardless of how the popover adapts; macOS keeps tap-outside-to-close too, this is
+just a second, always-available way to close it there. The existing `.onDisappear` acknowledgment logic is
+unaffected either way `dismiss()` is triggered. Pure UI fix, no new tests. Both platforms build clean.
+**The user then reported Wind Reminders specifically still not working on iPhone 17 Simulator even after the
+delegate fix** — root-caused with concrete evidence rather than more guessing, by directly inspecting the
+running Simulator's on-disk state (a technique this file already had precedent for — the StoreKit 825 known
+issue write-up used the same `sqlite3`-on-the-SwiftData-store approach). Found the device via `xcrun simctl
+list devices` (booted iPhone 17), its app container via `xcrun simctl get_app_container <udid>
+com.angelburgos.HorologyVault data`, then queried `Library/Application Support/default.store` directly:
+`ZENTITLEMENTS.ZISLIFETIMEUNLOCKED = 1` (genuinely unlocked, not the blocker), but the seeded demo watch's
+`ZWINDREMINDERLEADTIMEHOURS` was `NULL` — confirming the "mundane reasons" checklist from the delegate fix
+above, specifically: no lead time means `Watch.windReminderDate` always returns `nil`, so
+`scheduleWindReminder` silently has nothing to schedule for that watch regardless of anything else being
+correct. A second, compounding issue was found in the same query: `ZPOWERRESERVEHOURS` was `0.01` (36
+seconds) on that watch, and converting the most recent `ZWINDLOG` row's Core Data reference-date timestamp
+confirmed the reserve had already expired several minutes before the check — meaning even after adding a
+lead time, `scheduleWindReminder`'s "only schedule future dates" guard would still reject it until the watch
+is wound again with a more realistic reserve value. This wasn't a code bug — the user's specific test watch
+was genuinely misconfigured for what they were trying to test — but the underlying UX gap (leaving Wind
+Reminder blank silently disables the feature entirely, with no indication anywhere) was real, so
+`AddWatchView`'s Movement section footer was updated to say so explicitly. No code logic changed, no new
+tests. Both platforms build clean.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

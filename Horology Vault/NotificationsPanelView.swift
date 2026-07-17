@@ -15,6 +15,7 @@ import SwiftData
 /// reflects what's already true rather than predicting what's coming up. Presented as a
 /// `.popover` from the sidebar's bell button in `ContentView`.
 struct NotificationsPanelView: View {
+    @Environment(\.dismiss) private var dismiss
     @Query private var watches: [Watch]
 
     private var depletedWatches: [Watch] {
@@ -87,6 +88,16 @@ struct NotificationsPanelView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .toolbar {
+                // On compact-width screens (iPhone), SwiftUI adapts `.popover` to a full-screen
+                // presentation rather than a small anchored dropdown — there's no "outside" left
+                // to tap to dismiss it, so an explicit close button is required, not optional.
+                // macOS keeps its native tap-outside-to-close popover behavior regardless; this
+                // button is just a second, equally valid way to close it there.
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .navigationDestination(for: Watch.self) { watch in
                 WatchDetailView(watch: watch)
             }
