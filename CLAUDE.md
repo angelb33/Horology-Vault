@@ -291,6 +291,57 @@ Movement section's footer shows a red inline warning when it fails, alongside (n
 locked-reminders footer note. Left untested and inline in the View, same as `canSave`'s other checks
 (`caseDiameterMM > 0`, etc.) — simple enough not to warrant the kind of extraction `FitCalculator`/
 `PurchaseManager.updateEntitlementsRecord` got for their more complex logic. Both platforms build clean.
+Insights gained a 7th card the same session: **Depleted Watches** (`DepletedWatchesChartView.swift`), a bar
+chart scoped to only the manual/automatic watches currently out of power, showing whole days since each
+one's `powerReserveExpiresAt` — deliberately narrower than the existing Power Reserve card (which plots
+every trackable watch's hours remaining/overdue): this one is a focused "what needs winding right now" view.
+Backed by a new `Watch.daysSincePowerReserveDepleted: Int?` (`nil` unless `isPowerReserveDepleted`, 3 new
+tests in `WatchModelTests.swift`). Empty state uses a positive "All Watches Powered" /
+`checkmark.circle` framing rather than the usual `ContentUnavailableView` negative-framing default, since an
+empty list here is the good outcome, not a missing-data problem. Wired into `DashboardView` after Power
+Reserve; inherits the existing Insights paywall automatically, same as every other card. Both platforms
+build clean and the full unit test suite passes.
+The same session, after a web research pass on what comparable watch-collection apps and horology/insurance
+sources commonly track (WristTrack, iCollect Everything, watch-reference-number and insurance guides — see
+chat history for sources), **10 new collector/insurance detail fields were added to `Watch`**, all plain
+additive optionals (same zero-migration-risk pattern as every prior field): `serialNumber`/`caliber`/
+`caseMaterial`/`dialColor` (free text), `waterResistanceMeters` (Int), `boxAndPapersStatus` (new
+`BoxAndPapersStatus` enum: Full Set/Watch Only/Box Only/Papers Only), `condition` (new `WatchCondition`
+enum: New/Excellent/Good/Fair/Poor), `warrantyExpirationDate`/`appraisalDate` (Date), `insuredValue`
+(Double, distinct from `purchasePrice` — what it's insured for vs. what was paid). Explicitly **not**
+added: live/tracked market value, since that's the monetization plan's V2 "Market Value" feature,
+deliberately deferred until the subscription tier ships — everything added here is static, user-entered
+data that fits V1's local-only model. All 10 were also added to `Watch.init(...)` (edited via
+`AddWatchView`, same as `purchasePrice`/`movementType`/etc., unlike the reminder-toggle fields from earlier
+in this file which are only ever set post-construction). `AddWatchView` gained two new sections,
+**Specifications** (caliber, case material, dial color, water resistance) and **Condition & Documentation**
+(condition, box & papers, warranty expiration, insured value, appraisal date) — the latter's two optional
+dates use a `Bool` "has a value" toggle paired with a concrete `Date` `@State`, since `DatePicker` can't
+bind to `Date?` directly (`effectiveWarrantyExpirationDate`/`effectiveAppraisalDate` computed properties
+resolve the pair to `nil` when the toggle is off, mirroring the existing
+`effectivePowerReserveHours`-style clearing pattern). Serial Number was added to the existing Details
+section, next to Reference Number. `WatchDetailView` gained matching read-only **Specifications** and
+**Condition & Documentation** sections, each entirely hidden (not just an empty card) when nothing in that
+group is set, unlike `AddWatchView` which always shows the fields ready for entry.
+**A real pre-existing data-loss bug was found and fixed while wiring these fields into the encrypted
+backup**: `DataBackupManager.swift`'s `WatchBackup` Codable DTO was missing not just these 10 new fields but
+several already-shipped ones too — `movementType`, `powerReserveHours`, `windReminderLeadTimeHours`,
+`serviceIntervalYears`, both reminder-enabled toggles, and the entire `windLogs` relationship (no
+`WindLogBackup` existed at all) — meaning a restore from encrypted backup was silently dropping all of that
+data despite the feature being documented as capturing "the entire collection." Fixed by adding every
+missing field to `WatchBackup` (plus a new `WindLogBackup` struct) and wiring both `exportEncryptedBackup`
+and `importEncryptedBackup` to round-trip all of it; `serviceIntervalYears`/`isServiceDueReminderEnabled`/
+`isWindReminderEnabled` are set as post-`init` assignments on import, matching how they're only ever set
+post-construction elsewhere in the app (see the reminder-gating paragraphs earlier in this file). A new
+`DataBackupManagerTests.swift` (this project's first test coverage of the backup/restore feature at all —
+previously only `ScheduledBackupManagerTests` tested the due-date math, not the actual encrypt/decrypt/
+encode/decode round trip) has one test, `encryptedBackupRoundTripPreservesAllWatchFields`, asserting every
+`Watch` field plus a `WindLog` entry survives an export→import round trip — this exists specifically so the
+gap can't reopen unnoticed if a future field is added to `Watch` without a matching `WatchBackup` update.
+CSV export/import remains deliberately unchanged and still covers only `Watch`'s own flat fields (brand,
+model, reference number, complications, measurements, acquisition date) — same "portability format, not a
+full backup" scope it already had, unaffected by any of this.
+Both platforms build clean and the full unit test suite passes.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

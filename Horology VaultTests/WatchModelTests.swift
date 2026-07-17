@@ -335,6 +335,35 @@ struct WatchModelTests {
         #expect(watch.powerReserveRemainingFraction == 0.0)
     }
 
+    // MARK: - daysSincePowerReserveDepleted
+
+    @Test("daysSincePowerReserveDepleted is nil while the watch still has power")
+    func daysSincePowerReserveDepletedIsNilWhilePowered() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -2, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(watch.daysSincePowerReserveDepleted == nil)
+    }
+
+    @Test("daysSincePowerReserveDepleted is nil when power reserve isn't trackable at all")
+    func daysSincePowerReserveDepletedIsNilWithoutPowerReserveSpec() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .day, value: -30, to: .now)!)]
+        #expect(watch.daysSincePowerReserveDepleted == nil)
+    }
+
+    @Test("daysSincePowerReserveDepleted counts whole days since powerReserveExpiresAt")
+    func daysSincePowerReserveDepletedCountsWholeDays() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        // Wound 45 hours ago with a 3-hour reserve: expired 42 hours ago, i.e. 1 full day plus change.
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -45, to: .now)!)]
+        watch.powerReserveHours = 3
+        #expect(watch.daysSincePowerReserveDepleted == 1)
+    }
+
     // MARK: - windReminderDate
 
     @Test("windReminderDate is nil without a lead time, even with powerReserveExpiresAt set")

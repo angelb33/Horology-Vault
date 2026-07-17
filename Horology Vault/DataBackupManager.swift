@@ -188,6 +188,22 @@ enum DataBackupManager {
                 acquisitionDate: watch.acquisitionDate,
                 photoData: watch.photoData,
                 purchasePrice: watch.purchasePrice,
+                movementType: watch.movementType,
+                powerReserveHours: watch.powerReserveHours,
+                windReminderLeadTimeHours: watch.windReminderLeadTimeHours,
+                serviceIntervalYears: watch.serviceIntervalYears,
+                isServiceDueReminderEnabled: watch.isServiceDueReminderEnabled,
+                isWindReminderEnabled: watch.isWindReminderEnabled,
+                serialNumber: watch.serialNumber,
+                caliber: watch.caliber,
+                caseMaterial: watch.caseMaterial,
+                dialColor: watch.dialColor,
+                waterResistanceMeters: watch.waterResistanceMeters,
+                boxAndPapersStatus: watch.boxAndPapersStatus,
+                condition: watch.condition,
+                warrantyExpirationDate: watch.warrantyExpirationDate,
+                insuredValue: watch.insuredValue,
+                appraisalDate: watch.appraisalDate,
                 serviceRecords: watch.serviceRecords.map {
                     ServiceRecordBackup(datePerformed: $0.datePerformed, serviceType: $0.serviceType, accuracyDeltaSPD: $0.accuracyDeltaSPD)
                 },
@@ -196,6 +212,9 @@ enum DataBackupManager {
                 },
                 provenanceDocs: watch.provenanceDocs.map {
                     ProvenanceDocBackup(docType: $0.docType, fileName: $0.fileName, dateAdded: $0.dateAdded, fileData: $0.fileData)
+                },
+                windLogs: watch.windLogs.map {
+                    WindLogBackup(dateWound: $0.dateWound)
                 }
             )
         }
@@ -252,8 +271,24 @@ enum DataBackupManager {
                 lugWidthMM: watchBackup.lugWidthMM,
                 acquisitionDate: watchBackup.acquisitionDate,
                 photoData: watchBackup.photoData,
-                purchasePrice: watchBackup.purchasePrice
+                purchasePrice: watchBackup.purchasePrice,
+                movementType: watchBackup.movementType,
+                powerReserveHours: watchBackup.powerReserveHours,
+                windReminderLeadTimeHours: watchBackup.windReminderLeadTimeHours,
+                serialNumber: watchBackup.serialNumber,
+                caliber: watchBackup.caliber,
+                caseMaterial: watchBackup.caseMaterial,
+                dialColor: watchBackup.dialColor,
+                waterResistanceMeters: watchBackup.waterResistanceMeters,
+                boxAndPapersStatus: watchBackup.boxAndPapersStatus,
+                condition: watchBackup.condition,
+                warrantyExpirationDate: watchBackup.warrantyExpirationDate,
+                insuredValue: watchBackup.insuredValue,
+                appraisalDate: watchBackup.appraisalDate
             )
+            watch.serviceIntervalYears = watchBackup.serviceIntervalYears
+            watch.isServiceDueReminderEnabled = watchBackup.isServiceDueReminderEnabled
+            watch.isWindReminderEnabled = watchBackup.isWindReminderEnabled
             context.insert(watch)
             for record in watchBackup.serviceRecords {
                 context.insert(ServiceRecord(datePerformed: record.datePerformed, serviceType: record.serviceType, accuracyDeltaSPD: record.accuracyDeltaSPD, watch: watch))
@@ -263,6 +298,9 @@ enum DataBackupManager {
             }
             for doc in watchBackup.provenanceDocs {
                 context.insert(ProvenanceDoc(docType: doc.docType, fileData: doc.fileData, fileName: doc.fileName, dateAdded: doc.dateAdded, watch: watch))
+            }
+            for wind in watchBackup.windLogs {
+                context.insert(WindLog(dateWound: wind.dateWound, watch: watch))
             }
             insertedWatches.append(watch)
         }
@@ -343,9 +381,30 @@ private struct WatchBackup: Codable {
     var acquisitionDate: Date
     var photoData: Data?
     var purchasePrice: Double?
+    // Winding Log / reminder fields (added 2026-07-17, previously missing from this struct
+    // entirely — a real gap, since a restore would silently drop this data even though the
+    // encrypted backup is meant to capture the entire collection).
+    var movementType: MovementType?
+    var powerReserveHours: Double?
+    var windReminderLeadTimeHours: Double?
+    var serviceIntervalYears: Int?
+    var isServiceDueReminderEnabled: Bool?
+    var isWindReminderEnabled: Bool?
+    // Collector/insurance detail fields (added 2026-07-17, same session as the fields above).
+    var serialNumber: String?
+    var caliber: String?
+    var caseMaterial: String?
+    var dialColor: String?
+    var waterResistanceMeters: Int?
+    var boxAndPapersStatus: BoxAndPapersStatus?
+    var condition: WatchCondition?
+    var warrantyExpirationDate: Date?
+    var insuredValue: Double?
+    var appraisalDate: Date?
     var serviceRecords: [ServiceRecordBackup]
     var wearLogs: [WearLogBackup]
     var provenanceDocs: [ProvenanceDocBackup]
+    var windLogs: [WindLogBackup]
 }
 
 private struct StrapBackup: Codable {
@@ -368,6 +427,10 @@ private struct ServiceRecordBackup: Codable {
 private struct WearLogBackup: Codable {
     var dateWorn: Date
     var notes: String?
+}
+
+private struct WindLogBackup: Codable {
+    var dateWound: Date
 }
 
 private struct ProvenanceDocBackup: Codable {

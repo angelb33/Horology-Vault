@@ -42,6 +42,8 @@ struct WatchDetailView: View {
     var body: some View {
         Form {
             overviewSection
+            specificationsSection
+            conditionAndDocumentationSection
             remindersSection
             strapsSection
             serviceHistorySection
@@ -103,6 +105,9 @@ struct WatchDetailView: View {
             if let referenceNumber = watch.referenceNumber, !referenceNumber.isEmpty {
                 LabeledContent("Reference Number", value: referenceNumber)
             }
+            if let serialNumber = watch.serialNumber, !serialNumber.isEmpty {
+                LabeledContent("Serial Number", value: serialNumber)
+            }
             if !watch.complications.isEmpty {
                 LabeledContent("Complications", value: watch.complications.joined(separator: ", "))
             }
@@ -115,6 +120,58 @@ struct WatchDetailView: View {
             }
         } header: {
             SectionHeader("Overview")
+        }
+    }
+
+    /// Hidden entirely (not just an empty Section) when nothing's set — unlike `AddWatchView`,
+    /// which always shows these fields ready for entry, the read-only Workbench shouldn't show
+    /// an empty "Specifications" card for a watch nobody's added detail to yet.
+    @ViewBuilder
+    private var specificationsSection: some View {
+        if watch.caliber?.isEmpty == false || watch.caseMaterial?.isEmpty == false
+            || watch.dialColor?.isEmpty == false || watch.waterResistanceMeters != nil {
+            Section {
+                if let caliber = watch.caliber, !caliber.isEmpty {
+                    LabeledContent("Caliber", value: caliber)
+                }
+                if let caseMaterial = watch.caseMaterial, !caseMaterial.isEmpty {
+                    LabeledContent("Case Material", value: caseMaterial)
+                }
+                if let dialColor = watch.dialColor, !dialColor.isEmpty {
+                    LabeledContent("Dial Color", value: dialColor)
+                }
+                if let waterResistanceMeters = watch.waterResistanceMeters {
+                    LabeledContent("Water Resistance", value: "\(waterResistanceMeters)m")
+                }
+            } header: {
+                SectionHeader("Specifications")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conditionAndDocumentationSection: some View {
+        if watch.condition != nil || watch.boxAndPapersStatus != nil || watch.warrantyExpirationDate != nil
+            || watch.insuredValue != nil || watch.appraisalDate != nil {
+            Section {
+                if let condition = watch.condition {
+                    LabeledContent("Condition", value: condition.rawValue)
+                }
+                if let boxAndPapersStatus = watch.boxAndPapersStatus {
+                    LabeledContent("Box & Papers", value: boxAndPapersStatus.rawValue)
+                }
+                if let warrantyExpirationDate = watch.warrantyExpirationDate {
+                    LabeledContent("Warranty Expires", value: warrantyExpirationDate.formatted(date: .abbreviated, time: .omitted))
+                }
+                if let insuredValue = watch.insuredValue {
+                    LabeledContent("Insured Value", value: insuredValue.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))
+                }
+                if let appraisalDate = watch.appraisalDate {
+                    LabeledContent("Appraised", value: appraisalDate.formatted(date: .abbreviated, time: .omitted))
+                }
+            } header: {
+                SectionHeader("Condition & Documentation")
+            }
         }
     }
 

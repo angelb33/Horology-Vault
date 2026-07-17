@@ -16,6 +16,29 @@ enum MovementType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// What accessories/documentation accompany the watch — a commonly-tracked field across watch
+/// collection apps since it directly affects resale value (a "full set" can add 10-25% over a
+/// watch-only sale, per collector/insurance sources).
+enum BoxAndPapersStatus: String, Codable, CaseIterable, Identifiable {
+    case fullSet = "Full Set"
+    case watchOnly = "Watch Only"
+    case boxOnly = "Box Only"
+    case papersOnly = "Papers Only"
+
+    var id: String { rawValue }
+}
+
+/// Subjective condition grading, the same rough scale used across the secondary watch market.
+enum WatchCondition: String, Codable, CaseIterable, Identifiable {
+    case new = "New"
+    case excellent = "Excellent"
+    case good = "Good"
+    case fair = "Fair"
+    case poor = "Poor"
+
+    var id: String { rawValue }
+}
+
 @Model
 final class Watch {
     var brand: String
@@ -33,6 +56,23 @@ final class Watch {
     var serviceIntervalYears: Int?
     var isServiceDueReminderEnabled: Bool?
     var isWindReminderEnabled: Bool?
+
+    // Collector/insurance detail fields, added 2026-07-17 after a review of what comparable
+    // watch-collection apps and horology/insurance sources commonly track (see CLAUDE.md for
+    // sourcing) — all plain additive optionals, same zero-migration-risk pattern as every field
+    // above. `serialNumber` identifies this individual unit (vs. `referenceNumber`, which
+    // identifies the model); `caliber` is the specific movement designation (e.g. "ETA 2824-2"),
+    // more granular than `movementType`'s manual/automatic/quartz classification.
+    var serialNumber: String?
+    var caliber: String?
+    var caseMaterial: String?
+    var dialColor: String?
+    var waterResistanceMeters: Int?
+    var boxAndPapersStatus: BoxAndPapersStatus?
+    var condition: WatchCondition?
+    var warrantyExpirationDate: Date?
+    var insuredValue: Double?
+    var appraisalDate: Date?
 
     @Attribute(.externalStorage)
     var photoData: Data?
@@ -65,7 +105,17 @@ final class Watch {
         purchasePrice: Double? = nil,
         movementType: MovementType? = nil,
         powerReserveHours: Double? = nil,
-        windReminderLeadTimeHours: Double? = nil
+        windReminderLeadTimeHours: Double? = nil,
+        serialNumber: String? = nil,
+        caliber: String? = nil,
+        caseMaterial: String? = nil,
+        dialColor: String? = nil,
+        waterResistanceMeters: Int? = nil,
+        boxAndPapersStatus: BoxAndPapersStatus? = nil,
+        condition: WatchCondition? = nil,
+        warrantyExpirationDate: Date? = nil,
+        insuredValue: Double? = nil,
+        appraisalDate: Date? = nil
     ) {
         self.brand = brand
         self.model = model
@@ -80,6 +130,16 @@ final class Watch {
         self.movementType = movementType
         self.powerReserveHours = powerReserveHours
         self.windReminderLeadTimeHours = windReminderLeadTimeHours
+        self.serialNumber = serialNumber
+        self.caliber = caliber
+        self.caseMaterial = caseMaterial
+        self.dialColor = dialColor
+        self.waterResistanceMeters = waterResistanceMeters
+        self.boxAndPapersStatus = boxAndPapersStatus
+        self.condition = condition
+        self.warrantyExpirationDate = warrantyExpirationDate
+        self.insuredValue = insuredValue
+        self.appraisalDate = appraisalDate
     }
 
     var lastServiceDate: Date? {
@@ -171,6 +231,14 @@ final class Watch {
         let elapsedHours = Date().timeIntervalSince(lastPoweredDate) / 3600
         let remainingFraction = 1 - (elapsedHours / powerReserveHours)
         return min(max(remainingFraction, 0), 1)
+    }
+
+    /// Whole days elapsed since `powerReserveExpiresAt`, or `nil` if the watch isn't currently
+    /// depleted (or isn't trackable at all). Backs the Insights dashboard's "Depleted Watches"
+    /// chart — see `DepletedWatchesChartView`.
+    var daysSincePowerReserveDepleted: Int? {
+        guard isPowerReserveDepleted, let powerReserveExpiresAt else { return nil }
+        return Calendar.current.dateComponents([.day], from: powerReserveExpiresAt, to: Date()).day
     }
 
     /// When the wind reminder notification should fire — `powerReserveExpiresAt` minus the

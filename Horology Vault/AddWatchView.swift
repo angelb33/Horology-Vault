@@ -30,6 +30,19 @@ struct AddWatchView: View {
     @State private var powerReserveHours: Double?
     @State private var windReminderLeadTimeHours: Double?
 
+    @State private var serialNumber: String
+    @State private var caliber: String
+    @State private var caseMaterial: String
+    @State private var dialColor: String
+    @State private var waterResistanceMeters: Int?
+    @State private var boxAndPapersStatus: BoxAndPapersStatus?
+    @State private var condition: WatchCondition?
+    @State private var hasWarrantyExpirationDate: Bool
+    @State private var warrantyExpirationDate: Date
+    @State private var insuredValue: Double?
+    @State private var hasAppraisalDate: Bool
+    @State private var appraisalDate: Date
+
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
     #if os(macOS)
@@ -53,6 +66,18 @@ struct AddWatchView: View {
         _movementType = State(initialValue: watchToEdit?.movementType)
         _powerReserveHours = State(initialValue: watchToEdit?.powerReserveHours)
         _windReminderLeadTimeHours = State(initialValue: watchToEdit?.windReminderLeadTimeHours)
+        _serialNumber = State(initialValue: watchToEdit?.serialNumber ?? "")
+        _caliber = State(initialValue: watchToEdit?.caliber ?? "")
+        _caseMaterial = State(initialValue: watchToEdit?.caseMaterial ?? "")
+        _dialColor = State(initialValue: watchToEdit?.dialColor ?? "")
+        _waterResistanceMeters = State(initialValue: watchToEdit?.waterResistanceMeters)
+        _boxAndPapersStatus = State(initialValue: watchToEdit?.boxAndPapersStatus)
+        _condition = State(initialValue: watchToEdit?.condition)
+        _hasWarrantyExpirationDate = State(initialValue: watchToEdit?.warrantyExpirationDate != nil)
+        _warrantyExpirationDate = State(initialValue: watchToEdit?.warrantyExpirationDate ?? Date())
+        _insuredValue = State(initialValue: watchToEdit?.insuredValue)
+        _hasAppraisalDate = State(initialValue: watchToEdit?.appraisalDate != nil)
+        _appraisalDate = State(initialValue: watchToEdit?.appraisalDate ?? Date())
     }
 
     private var canSave: Bool {
@@ -90,6 +115,16 @@ struct AddWatchView: View {
         return windReminderLeadTimeHours
     }
 
+    /// `DatePicker` can't bind directly to `Date?`, so these optional date fields pair a concrete
+    /// `Date` `@State` with a `Bool` "has a value" toggle — `nil` unless the toggle is on.
+    private var effectiveWarrantyExpirationDate: Date? {
+        hasWarrantyExpirationDate ? warrantyExpirationDate : nil
+    }
+
+    private var effectiveAppraisalDate: Date? {
+        hasAppraisalDate ? appraisalDate : nil
+    }
+
     /// Service Due and Wind reminders are both gated behind the lifetime unlock (see
     /// `NotificationManager`'s doc comment) — this only affects whether the app actually
     /// notifies the user, not whether the reminder fields below can be entered, so a free
@@ -103,6 +138,8 @@ struct AddWatchView: View {
             Form {
                 detailsSection
                 movementSection
+                specificationsSection
+                conditionAndDocumentationSection
                 complicationsSection
                 measurementsSection
                 photoSection
@@ -151,6 +188,7 @@ struct AddWatchView: View {
             TextField("Brand", text: $brand)
             TextField("Model", text: $model)
             TextField("Reference Number", text: $referenceNumber)
+            TextField("Serial Number", text: $serialNumber)
             LabeledContent("Purchase Price") {
                 TextField("Optional", value: $purchasePrice, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
                     .multilineTextAlignment(.trailing)
@@ -161,6 +199,63 @@ struct AddWatchView: View {
             }
         } header: {
             SectionHeader("Details")
+        }
+    }
+
+    private var specificationsSection: some View {
+        Section {
+            TextField("Caliber", text: $caliber)
+            TextField("Case Material", text: $caseMaterial)
+            TextField("Dial Color", text: $dialColor)
+            LabeledContent("Water Resistance") {
+                HStack(spacing: 4) {
+                    TextField("0", value: $waterResistanceMeters, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                        .frame(maxWidth: 80)
+                    Text("meters")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            SectionHeader("Specifications")
+        }
+    }
+
+    private var conditionAndDocumentationSection: some View {
+        Section {
+            Picker("Condition", selection: $condition) {
+                Text("Not Set").tag(WatchCondition?.none)
+                ForEach(WatchCondition.allCases) { grade in
+                    Text(grade.rawValue).tag(WatchCondition?.some(grade))
+                }
+            }
+            Picker("Box & Papers", selection: $boxAndPapersStatus) {
+                Text("Not Set").tag(BoxAndPapersStatus?.none)
+                ForEach(BoxAndPapersStatus.allCases) { status in
+                    Text(status.rawValue).tag(BoxAndPapersStatus?.some(status))
+                }
+            }
+            Toggle("Warranty Expiration", isOn: $hasWarrantyExpirationDate)
+            if hasWarrantyExpirationDate {
+                DatePicker("Expires", selection: $warrantyExpirationDate, displayedComponents: .date)
+            }
+            LabeledContent("Insured Value") {
+                TextField("Optional", value: $insuredValue, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+                    .frame(maxWidth: 120)
+            }
+            Toggle("Appraisal Date", isOn: $hasAppraisalDate)
+            if hasAppraisalDate {
+                DatePicker("Appraised", selection: $appraisalDate, displayedComponents: .date)
+            }
+        } header: {
+            SectionHeader("Condition & Documentation")
         }
     }
 
@@ -286,6 +381,10 @@ struct AddWatchView: View {
         let trimmedReference = referenceNumber.trimmingCharacters(in: .whitespaces)
         let trimmedBrand = brand.trimmingCharacters(in: .whitespaces)
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
+        let trimmedSerialNumber = serialNumber.trimmingCharacters(in: .whitespaces)
+        let trimmedCaliber = caliber.trimmingCharacters(in: .whitespaces)
+        let trimmedCaseMaterial = caseMaterial.trimmingCharacters(in: .whitespaces)
+        let trimmedDialColor = dialColor.trimmingCharacters(in: .whitespaces)
         let complications = Watch.commonComplications.filter { selectedComplications.contains($0) }
 
         let targetWatch: Watch
@@ -302,6 +401,16 @@ struct AddWatchView: View {
             watchToEdit.movementType = movementType
             watchToEdit.powerReserveHours = effectivePowerReserveHours
             watchToEdit.windReminderLeadTimeHours = effectiveWindReminderLeadTimeHours
+            watchToEdit.serialNumber = trimmedSerialNumber.isEmpty ? nil : trimmedSerialNumber
+            watchToEdit.caliber = trimmedCaliber.isEmpty ? nil : trimmedCaliber
+            watchToEdit.caseMaterial = trimmedCaseMaterial.isEmpty ? nil : trimmedCaseMaterial
+            watchToEdit.dialColor = trimmedDialColor.isEmpty ? nil : trimmedDialColor
+            watchToEdit.waterResistanceMeters = waterResistanceMeters
+            watchToEdit.boxAndPapersStatus = boxAndPapersStatus
+            watchToEdit.condition = condition
+            watchToEdit.warrantyExpirationDate = effectiveWarrantyExpirationDate
+            watchToEdit.insuredValue = insuredValue
+            watchToEdit.appraisalDate = effectiveAppraisalDate
             targetWatch = watchToEdit
         } else {
             let watch = Watch(
@@ -316,7 +425,17 @@ struct AddWatchView: View {
                 purchasePrice: purchasePrice,
                 movementType: movementType,
                 powerReserveHours: effectivePowerReserveHours,
-                windReminderLeadTimeHours: effectiveWindReminderLeadTimeHours
+                windReminderLeadTimeHours: effectiveWindReminderLeadTimeHours,
+                serialNumber: trimmedSerialNumber.isEmpty ? nil : trimmedSerialNumber,
+                caliber: trimmedCaliber.isEmpty ? nil : trimmedCaliber,
+                caseMaterial: trimmedCaseMaterial.isEmpty ? nil : trimmedCaseMaterial,
+                dialColor: trimmedDialColor.isEmpty ? nil : trimmedDialColor,
+                waterResistanceMeters: waterResistanceMeters,
+                boxAndPapersStatus: boxAndPapersStatus,
+                condition: condition,
+                warrantyExpirationDate: effectiveWarrantyExpirationDate,
+                insuredValue: insuredValue,
+                appraisalDate: effectiveAppraisalDate
             )
             modelContext.insert(watch)
             targetWatch = watch

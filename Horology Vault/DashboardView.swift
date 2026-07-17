@@ -55,6 +55,9 @@ struct DashboardView: View {
                             InsightCard(title: "Power Reserve") {
                                 PowerReserveChartView(watches: watches)
                             }
+                            InsightCard(title: "Depleted Watches") {
+                                DepletedWatchesChartView(watches: watches)
+                            }
                         }
                         .padding()
                     }
