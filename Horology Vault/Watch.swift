@@ -160,6 +160,19 @@ final class Watch {
         return powerReserveExpiresAt < Date()
     }
 
+    /// Fraction of the power reserve remaining, from `1.0` (just wound/worn) down to `0.0`
+    /// (fully depleted) — clamped so an overdue watch reads as exactly empty rather than
+    /// negative. `nil` for the same reasons `powerReserveExpiresAt` is nil (quartz, unset
+    /// movement, or no power-reserve spec yet). Backs the Vault grid's power reserve bar, a
+    /// full-version-only upgrade over the free depleted/not-depleted badge — see
+    /// `WatchCardView`.
+    var powerReserveRemainingFraction: Double? {
+        guard let lastPoweredDate, let powerReserveHours, powerReserveHours > 0 else { return nil }
+        let elapsedHours = Date().timeIntervalSince(lastPoweredDate) / 3600
+        let remainingFraction = 1 - (elapsedHours / powerReserveHours)
+        return min(max(remainingFraction, 0), 1)
+    }
+
     /// When the wind reminder notification should fire — `powerReserveExpiresAt` minus the
     /// user-entered `windReminderLeadTimeHours` lead time. `nil` if either is missing, which
     /// also covers quartz/unset movements (no `powerReserveExpiresAt`) without a separate check.

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import Vision
 import ImageIO
 
@@ -18,7 +19,20 @@ import AppKit
 struct WatchCardView: View {
     let watch: Watch
 
+    @Query private var entitlements: [Entitlements]
     @State private var focusPoint: UnitPoint = .center
+
+    private var isUnlocked: Bool {
+        entitlements.first?.isLifetimeUnlocked ?? false
+    }
+
+    /// The power reserve bar is a full-version-only upgrade over the free depleted/not-depleted
+    /// badge (see `WatchCardView`'s badge overlay below) — free users keep exactly what they have
+    /// today rather than losing the badge until they unlock, matching how every other paid
+    /// feature in this app is scoped as additive, never a regression.
+    private var showsPowerReserveBar: Bool {
+        isUnlocked && watch.powerReserveRemainingFraction != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -34,7 +48,9 @@ struct WatchCardView: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                if watch.isPowerReserveDepleted {
+                // Once unlocked, the bar below already conveys "depleted" (empty, red) more
+                // informatively than this binary badge, so it steps aside rather than doubling up.
+                if !showsPowerReserveBar && watch.isPowerReserveDepleted {
                     Image(systemName: "gauge.with.needle")
                         .font(.caption)
                         .padding(6)
@@ -42,6 +58,10 @@ struct WatchCardView: View {
                         .foregroundStyle(.white)
                         .padding(6)
                 }
+            }
+
+            if showsPowerReserveBar, let fraction = watch.powerReserveRemainingFraction {
+                PowerReserveBarView(fraction: fraction)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -74,6 +94,36 @@ struct WatchCardView: View {
                         .foregroundStyle(.secondary)
                 }
         }
+    }
+}
+
+/// A minimalist fuel-gauge-style bar for a watch's power reserve — thin, color-coded by
+/// remaining fraction (green when comfortable, yellow when getting low, red when nearly or
+/// fully depleted), replacing a numeric readout with something scannable across a whole grid
+/// of cards at a glance.
+private struct PowerReserveBarView: View {
+    /// 0...1 remaining, per `Watch.powerReserveRemainingFraction`.
+    let fraction: Double
+
+    private var tint: Color {
+        switch fraction {
+        case ..<0.15: .red
+        case ..<0.4: .yellow
+        default: .green
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.quaternary)
+                Capsule()
+                    .fill(tint)
+                    .frame(width: geometry.size.width * fraction)
+            }
+        }
+        .frame(height: 4)
     }
 }
 
@@ -179,4 +229,5 @@ private func saliencyFocusPoint(from data: Data?) async -> UnitPoint? {
     WatchCardView(watch: Watch(brand: "Omega", model: "Speedmaster", caseDiameterMM: 42, lugToLugMM: 48, lugWidthMM: 20))
         .frame(width: 160)
         .padding()
+        .modelContainer(for: [Watch.self, Entitlements.self], inMemory: true)
 }

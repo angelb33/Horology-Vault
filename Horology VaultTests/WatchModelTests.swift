@@ -297,6 +297,44 @@ struct WatchModelTests {
         #expect(watch.isPowerReserveDepleted == false)
     }
 
+    // MARK: - powerReserveRemainingFraction
+
+    @Test("powerReserveRemainingFraction is nil without powerReserveHours, even with a wind logged")
+    func powerReserveRemainingFractionIsNilWithoutPowerReserveHours() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: .now)]
+        #expect(watch.powerReserveRemainingFraction == nil)
+    }
+
+    @Test("powerReserveRemainingFraction is essentially 1.0 immediately after winding")
+    func powerReserveRemainingFractionIsFullRightAfterWinding() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: .now)]
+        watch.powerReserveHours = 42
+        // Not exactly 1.0 — a sliver of real time elapses between winding and this assertion.
+        #expect(watch.powerReserveRemainingFraction! > 0.999)
+    }
+
+    @Test("powerReserveRemainingFraction is the fraction of powerReserveHours remaining, halfway through")
+    func powerReserveRemainingFractionIsHalfwayThroughReserve() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -21, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(abs(watch.powerReserveRemainingFraction! - 0.5) < 0.01)
+    }
+
+    @Test("powerReserveRemainingFraction clamps to 0 once depleted rather than going negative")
+    func powerReserveRemainingFractionClampsToZeroWhenDepleted() {
+        let watch = makeWatch()
+        watch.movementType = .manual
+        watch.windLogs = [WindLog(dateWound: Calendar.current.date(byAdding: .hour, value: -100, to: .now)!)]
+        watch.powerReserveHours = 42
+        #expect(watch.powerReserveRemainingFraction == 0.0)
+    }
+
     // MARK: - windReminderDate
 
     @Test("windReminderDate is nil without a lead time, even with powerReserveExpiresAt set")

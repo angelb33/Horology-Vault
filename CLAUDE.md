@@ -263,6 +263,34 @@ The Reminders section's footer was also made conditional — it now names whiche
 actually off (Service Due, Wind, or both) instead of a static generic sentence, so the message only appears
 when relevant and says exactly what's overriding this watch's settings. Pure UI/visibility change, no new
 model or scheduling logic, so no new tests; both platforms build clean and the full suite still passes.
+A new premium-only feature shipped the same session, brainstormed with the user first (visual style and
+free/paid behavior were both explicit design questions, not assumed): **a minimalist power reserve bar on
+each Vault grid card**, gated behind the lifetime unlock. `Watch` gained a computed
+`powerReserveRemainingFraction: Double?` (1.0 = just wound/worn, clamped to 0.0 rather than going negative
+once depleted; `nil` for the same reasons `powerReserveExpiresAt` is nil — quartz, unset movement, or no
+power-reserve spec — 4 new tests in `WatchModelTests.swift`). `WatchCardView.swift` gained a private
+`PowerReserveBarView` — a thin `Capsule`-based fuel-gauge bar under the photo, color-coded green
+(`>=0.4` remaining) → yellow (`>=0.15`) → red (`<0.15`) — and its own `@Query private var
+entitlements: [Entitlements]`/`isUnlocked` (a self-contained pattern, since `WatchCardView` previously took
+only a `watch:` param and had no SwiftData awareness of its own). **Free-tier behavior was an explicit
+design decision, not an assumption:** the existing red `gauge.with.needle` "depleted" badge (previously
+ungated, shown to every user) still shows for locked users exactly as before — only unlocked users with a
+trackable power reserve see it swapped for the new bar (`showsPowerReserveBar = isUnlocked &&
+watch.powerReserveRemainingFraction != nil`), so no free functionality was taken away in the process of
+adding this paid one, consistent with how every other paid feature in this app was scoped. `VaultGridView`'s
+existing preview `.modelContainer` already included `Entitlements.self` from earlier work;
+`WatchCardView`'s own standalone `#Preview` needed the same addition since it now queries that type too.
+Both platforms build clean and the full unit test suite passes.
+A small validation fix followed: **`AddWatchView` now rejects a Wind Reminder lead time that's equal to or
+greater than Power Reserve.** A lead time that long would compute a `windReminderDate` at or before the
+watch was last wound/worn — i.e. the "reminder" would fire at the same moment as, or after, the watch is
+already depleted, defeating the point of a warning. `canSave` gained a new `isWindReminderLeadTimeValid`
+guard (vacuously true unless movement is manual/automatic and both values are set, matching the
+`effectivePowerReserveHours`/`effectiveWindReminderLeadTimeHours` clearing pattern's scope), and the
+Movement section's footer shows a red inline warning when it fails, alongside (not replacing) the existing
+locked-reminders footer note. Left untested and inline in the View, same as `canSave`'s other checks
+(`caseDiameterMM > 0`, etc.) — simple enough not to warrant the kind of extraction `FitCalculator`/
+`PurchaseManager.updateEntitlementsRecord` got for their more complex logic. Both platforms build clean.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape

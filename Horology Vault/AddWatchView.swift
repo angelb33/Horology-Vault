@@ -61,6 +61,18 @@ struct AddWatchView: View {
             && (caseDiameterMM ?? 0) > 0
             && (lugToLugMM ?? 0) > 0
             && (lugWidthMM ?? 0) > 0
+            && isWindReminderLeadTimeValid
+    }
+
+    /// A wind reminder that fires at or after the power reserve is already exhausted defeats the
+    /// purpose of a "before it runs out" warning, so this must be strictly less than
+    /// `powerReserveHours` whenever both are set. Vacuously true (nothing to validate) once
+    /// either value is missing or the movement type doesn't use power reserve at all.
+    private var isWindReminderLeadTimeValid: Bool {
+        guard movementType == .manual || movementType == .automatic,
+              let windReminderLeadTimeHours, let powerReserveHours
+        else { return true }
+        return windReminderLeadTimeHours < powerReserveHours
     }
 
     /// `powerReserveHours` only means something for movements that actually hold a wind —
@@ -189,12 +201,18 @@ struct AddWatchView: View {
         } header: {
             SectionHeader("Movement")
         } footer: {
-            // Power reserve and the reminder lead time are always free to enter — see
-            // `isUnlocked`'s doc comment — this just clarifies that the notification itself
-            // needs the full version, without blocking data entry. No purchase button here;
-            // that flow already lives in Settings/Insights, this is informational only.
-            if (movementType == .manual || movementType == .automatic) && !isUnlocked {
-                Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
+            VStack(alignment: .leading, spacing: 6) {
+                if !isWindReminderLeadTimeValid {
+                    Label("Wind Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+                // Power reserve and the reminder lead time are always free to enter — see
+                // `isUnlocked`'s doc comment — this just clarifies that the notification itself
+                // needs the full version, without blocking data entry. No purchase button here;
+                // that flow already lives in Settings/Insights, this is informational only.
+                if (movementType == .manual || movementType == .automatic) && !isUnlocked {
+                    Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
+                }
             }
         }
     }
