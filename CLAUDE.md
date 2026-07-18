@@ -717,6 +717,33 @@ discuss making it clearer. No specific alternative name or scope was given; this
 open next session, not a spec to implement from. Note there are now four reminder types in play (Service
 Due, Wind Reminder, Power Reserve Depleted, Pickup Reminder) — worth considering whether any renaming should
 look at all four together for consistency, not just Wind Reminder in isolation.
+A UI bug fix shipped 2026-07-18: **sidebar row selection now follows the user's chosen accent color instead
+of staying system blue.** Root cause: `List(selection:)` under the `.sidebar` list style (the implicit style
+`NavigationSplitView`'s first column uses) always paints its native row-highlight using the *system*
+accent-color preference — NSTableView/NSOutlineView chrome on macOS — never the app's own `.tint()`
+environment value; neither `.tint()` nor `.listItemTint()` (both tried first) could override it, since this
+is a known public-API limitation of `.sidebar`-style Lists, not a bug in this app's own tinting setup.
+Fixed in `ContentView.swift`'s `splitView` computed property by replacing the native selectable
+`List(Section.allCases, selection: $selection) { ... .tag(section) }` construction with plain `Button`s
+(`List { ForEach(Section.allCases) { section in Button { selection = section } label: { ... } } }`), so the
+highlight paint is fully custom rather than OS-controlled — the selected row's background is now an inset
+`RoundedRectangle(cornerRadius: 8)` filled with `accentColorOption.color.opacity(0.25)` and horizontal
+padding (not a full-bleed row fill, per explicit user request for "comfortable space" around the icon/text
+rather than an edge-to-edge highlight), with `.listRowBackground(Color.clear)` clearing the row's own
+default background and extra vertical/horizontal padding on the Label content itself so the highlight reads
+as tall and roomy rather than a tight box around the text. Dropping the native `List(selection:)` binding
+also silently lost macOS's built-in arrow-key sidebar navigation — restored via `.focusable()` +
+`.onMoveCommand(perform: moveSidebarSelection)` on the `List` plus a new private `moveSidebarSelection(_:)`
+method (right after `splitView`) that manually steps `selection` through `Section.allCases`, clamped (no
+wraparound) at the top/bottom. **A real cross-platform bug was caught before it shipped:**
+`onMoveCommand`/`MoveCommandDirection` are macOS/tvOS-only SwiftUI APIs — adding them unconditionally broke
+the iOS Simulator build (`'MoveCommandDirection' is unavailable in iOS`); fixed by wrapping both the
+`.focusable()`/`.onMoveCommand` call site and the entire `moveSidebarSelection` body in `#if os(macOS)` —
+iOS/iPadOS simply has no arrow-key sidebar navigation now, same as it never did before via the native
+mechanism either, so this is a documented no-op there, not a gap. Pure SwiftUI presentation code, no
+model/business-logic changes, no new tests. Both platforms build clean; the user confirmed the final visual
+result looked right ("perfect") after the last padding round, so — unlike most other UI work in this
+project — treat this one as visually user-confirmed, not just build-clean-and-unverified.
 Treat the monetization plan doc as the
 source of truth for "why" a feature is scoped the way it is; implement against it rather than re-deriving
 architecture from scratch. `horology_vault_market_research.md` at the repo root has a competitive-landscape
@@ -801,7 +828,19 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   relying on `.pickerStyle(.menu)` alone. **Sidebar icon tinting** (2026-07-17): `ContentView`'s sidebar
   `Label`s use the `Label(title:icon:)` init so only the icon (not the row text) picks up
   `.foregroundStyle(accentColorOption.color)`, matching the Apple Reminders/Notes look — tinting the whole
-  sidebar `List` background was tried first and reverted per feedback, so don't reintroduce that. **Appearance
+  sidebar `List` background was tried first and reverted per feedback, so don't reintroduce that. **Sidebar
+  row *selection* is custom-painted, not native, as of 2026-07-18** — `.sidebar`-style `List(selection:)`
+  always paints its row-highlight using the *system* accent-color preference on macOS (NSTableView/
+  NSOutlineView chrome), ignoring `.tint()`/`.listItemTint()` entirely; `ContentView.splitView` no longer
+  uses `List(Section.allCases, selection: $selection) { ... .tag(section) }` at all — it's a
+  `List { ForEach(Section.allCases) { section in Button { selection = section } label: { ... } } }` with a
+  manually-painted inset `RoundedRectangle` background (`accentColorOption.color.opacity(0.25)`) on the
+  selected row instead, so the highlight tracks the app's own accent-color setting. Dropping the native
+  selection binding also dropped macOS's built-in arrow-key sidebar navigation, restored via
+  `#if os(macOS)`-gated `.focusable()` + `.onMoveCommand(perform: moveSidebarSelection)` — `onMoveCommand`/
+  `MoveCommandDirection` are macOS/tvOS-only, so don't remove that `#if` guard or it breaks the iOS build.
+  If a future session needs to change sidebar row appearance/selection again, this Button-based
+  reimplementation (not a native `List(selection:)`) is the current source of truth. **Appearance
   switching (Light/Dark/System) has a known, still-unverified fix as of 2026-07-17** — see the "Known issue"
   bullet near the end of this list before touching `ContentView`'s `.preferredColorScheme`/`.id(...)` setup.
 - **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,

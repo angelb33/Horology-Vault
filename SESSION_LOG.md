@@ -1,5 +1,57 @@
 # Session Log
 
+## 2026-07-18 — Session 11
+
+### Accomplished this session
+
+- **Fixed sidebar row-selection highlight color not following the user's chosen accent color** — reported
+  by the user as staying system blue even when e.g. yellow was picked in Settings. Root cause: `.sidebar`-
+  style `List(selection:)` (the implicit style inside `NavigationSplitView`'s first column) always paints
+  its native row-highlight from the *system* accent-color preference (NSTableView/NSOutlineView chrome on
+  macOS), not the app's `.tint()` environment value — a known public-API limitation, not a bug in this
+  app's own tinting setup. Neither `.tint()` nor `.listItemTint()` could override it.
+- Fixed in `ContentView.swift`'s `splitView` computed property, iterated across several rounds of user
+  feedback: replaced the native `List(Section.allCases, selection: $selection) { ... .tag(section) }` with
+  plain `Button`s driving `selection` directly, so the highlight paint is fully custom rather than
+  OS-controlled. Selected row gets an inset `RoundedRectangle(cornerRadius: 8)` background
+  (`accentColorOption.color.opacity(0.25)`) rather than a full-bleed row fill, per the user's explicit
+  request for "comfortable space" around the icon/text; `.listRowBackground(Color.clear)` clears the
+  default row background, and extra padding on the Label content makes the highlight read as tall/roomy
+  rather than a tight box.
+- Dropping the native `List(selection:)` binding silently lost macOS's built-in arrow-key sidebar
+  navigation — restored via `.focusable()` + `.onMoveCommand(perform: moveSidebarSelection)` and a new
+  private `moveSidebarSelection(_:)` method that manually steps `selection` through `Section.allCases`
+  (clamped, no wraparound).
+- **Real bug caught before it shipped:** `onMoveCommand`/`MoveCommandDirection` are macOS/tvOS-only SwiftUI
+  APIs — adding them unconditionally broke the iOS Simulator build. Fixed by wrapping both the
+  `.focusable()`/`.onMoveCommand` call site and the entire `moveSidebarSelection` body in `#if os(macOS)`;
+  iOS has no arrow-key sidebar navigation now, same as it effectively never did before, so this is a
+  documented no-op there, not a gap.
+- Both `xcodebuild ... -destination 'platform=macOS' build` and
+  `xcodebuild ... -destination 'platform=iOS Simulator,name=iPhone 17' build` were run after every edit and
+  confirmed clean, including catching the iOS-only break above before it shipped. Pure SwiftUI presentation
+  code — no model/business-logic changes, no new tests, no other files touched.
+- The user said "perfect" after seeing the final padding round's visual result — treat this as
+  user-confirmed working, not just build-clean-and-unverified (unlike most other UI work logged in this
+  file, which still awaits a manual Xcode pass due to this sandbox's standing lack of Screen
+  Recording/Apple Events permission).
+- Committed as `8acfcf9` ("Make sidebar selection follow the accent color instead of system blue") and
+  pushed to `origin/main` (`2478151..8acfcf9 main -> main`) before this close began; `CLAUDE.md`'s Project
+  State narrative and Architecture section (sidebar bullet) were updated as part of this close.
+
+### Pending / next steps
+
+- Longstanding open items carried forward, unchanged this session: the **Wind Reminder naming discussion**
+  the user asked to open (see Session 10's entry below — still not scoped or started), the
+  appearance-switching fix (3rd attempt, still **unverified**, see `CLAUDE.md`'s "Known issue" bullet), the
+  macOS-native StoreKit `ASDErrorDomain 825` purchase failure, V2 CloudKit Sync (scoped conversationally,
+  not built), and the `SESSION_LOG.md` 8-commit gap noted in Session 10's entry (still not backfilled, not
+  requested).
+- Standing sandbox limitation, unchanged: no Screen Recording/Apple Events permission, so UI changes
+  (including this session's) can only be confirmed build-clean from inside a session, not visually — this
+  session's "perfect" from the user is a rare exception where visual confirmation did happen, just outside
+  the session itself.
+
 ## 2026-07-17 — Session 10
 
 ### Accomplished this session
