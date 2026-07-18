@@ -966,6 +966,18 @@ separate manual/automatic-vs-quartz wording split now that one generic sentence 
 addition plus reuse of already-tested model logic — no new tests, since the underlying
 `windReminderDate` computation this field ultimately drives was already covered by the tests added in the
 verification step above; both platforms build clean.
+**Visually confirmed the same day, at the user's explicit request** ("test the app in Xcode to visually
+confirm") via the install-via-`simctl`-plus-XCUITest-screenshot technique, driving the real Add Watch form
+rather than reasoning from code alone: selecting Quartz in the Movement Type picker correctly reveals both
+"Battery Life" (months) and "Power Reserve Low Reminder" (days before empty) fields with the right footer
+copy; entering an out-of-range lead time (800 days against a 24-month battery life) correctly renders the
+movement-aware red validation warning ("...must be less than **Battery Life**", not "Power Reserve") and
+visibly disables Save. One throwaway XCUITest hit a Picker-row hittability quirk (`.tap()` on the "Movement
+Type" `StaticText` failed as "not hittable" despite `.exists` being true) — worked around with
+`.coordinate(withNormalizedOffset:).tap()`, which force-taps at that screen location regardless of
+XCUITest's hittability predicate; worth reusing if a future UI test hits the same Picker-row brittleness.
+Not committed, per this project's standing practice of using throwaway diagnostic UI tests for verification
+without establishing permanent UI-test coverage.
 
 ## Common commands
 
