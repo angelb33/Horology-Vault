@@ -214,15 +214,14 @@ struct WatchDetailView: View {
                     }
                 }
                 .disabled(!isServiceDueReminderEnabledGlobally)
-                // Power Reserve Low needs an hours-based lead time, which only exists for
-                // manual/automatic (see AddWatchView's Movement section); Power Reserve Empty
-                // needs no lead time at all — just powerReserveExpiresAt, which quartz now
-                // computes too via batteryLifeMonths — so it's available for any set movement type.
-                if watch.movementType == .manual || watch.movementType == .automatic {
+                // Both reminders now just need a set movement type — Power Reserve Low's
+                // lead-time field is in AddWatchView's Movement section for every movement type
+                // (hours for manual/automatic, days for quartz, both stored as
+                // windReminderLeadTimeHours); Power Reserve Empty needs no lead time at all, just
+                // powerReserveExpiresAt, which quartz computes too via batteryLifeMonths.
+                if watch.movementType != nil {
                     Toggle("Power Reserve Low Reminder", isOn: windReminderEnabledBinding)
                         .disabled(!isWindReminderEnabledGlobally)
-                }
-                if watch.movementType != nil {
                     Toggle("Power Reserve Empty Reminder", isOn: powerReserveDepletedReminderEnabledBinding)
                         .disabled(!isPowerReserveDepletedReminderEnabledGlobally)
                 }

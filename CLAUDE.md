@@ -941,6 +941,31 @@ scoped. One flaky, environment-only UI test failure was observed during this ver
 launch test with no assertions) — re-running just the unit test target (`Horology VaultTests`, excluding
 the UI test bundle) passed clean, confirming this was a macOS test-harness process-teardown timing issue,
 not a real regression. Both platforms build clean.
+That open UI gap was closed immediately after, at the user's request: **`AddWatchView`'s Movement section
+now shows a "Power Reserve Low Reminder" field for quartz too**, in days rather than hours — a quartz
+battery's multi-month timescale makes hours an awkward unit to type, unlike mechanical's hours-scale
+mainspring. Rather than adding a second, unit-aware model field, the days input is a pure display-layer
+conversion: a new `windReminderLeadTimeDaysBinding` computed `Binding<Double?>` divides/multiplies by 24
+on get/set, still reading and writing the same `windReminderLeadTimeHours` the manual/automatic path uses
+— `Watch.windReminderDate`/`NotificationManager` needed no changes at all, since they already operated on
+that one field regardless of movement type (confirmed in the immediately-preceding change). `canSave`'s
+`isWindReminderLeadTimeValid` guard, previously hardcoded to only check manual/automatic against
+`powerReserveHours`, now switches on `movementType` and checks quartz's lead time against
+`batteryLifeMonths` converted to an average-month-length approximation (730 hours/month) — a sanity-check
+guard against obviously-too-long values, not exact scheduling math, so the approximation is deliberately
+fine. `effectiveWindReminderLeadTimeHours` (the clear-on-movement-switch rule) widened from
+manual/automatic-only to "any set movement type," since quartz is now a legitimate holder of this field
+too — mirroring how `WatchDetailView`'s Reminders section also widened its "Power Reserve Low Reminder"
+toggle visibility from `.manual || .automatic` to `movementType != nil`, alongside the "Power Reserve
+Empty Reminder" toggle it already shared that condition with (the two toggles' visibility conditions are
+now identical, so they were merged into one `if` block instead of two separate ones). The Movement
+section's footer, the "must be less than Power Reserve" validation warning, and the "Reminders are a Full
+Version feature" note were all made movement-type-aware/generic to match (the validation label now says
+"Battery Life" instead of "Power Reserve" specifically for quartz; the Full Version note dropped its
+separate manual/automatic-vs-quartz wording split now that one generic sentence covers both). Pure UI
+addition plus reuse of already-tested model logic — no new tests, since the underlying
+`windReminderDate` computation this field ultimately drives was already covered by the tests added in the
+verification step above; both platforms build clean.
 
 ## Common commands
 

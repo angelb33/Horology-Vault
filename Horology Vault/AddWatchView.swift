@@ -91,15 +91,24 @@ struct AddWatchView: View {
             && isWindReminderLeadTimeValid
     }
 
-    /// A wind reminder that fires at or after the power reserve is already exhausted defeats the
-    /// purpose of a "before it runs out" warning, so this must be strictly less than
-    /// `powerReserveHours` whenever both are set. Vacuously true (nothing to validate) once
+    /// A wind reminder that fires at or after the power source is already exhausted defeats the
+    /// purpose of a "before it runs out" warning, so this must be strictly less than the relevant
+    /// duration spec — `powerReserveHours` for manual/automatic, `batteryLifeMonths` (converted to
+    /// an average-length-month approximation in hours — a sanity-check guard, not exact scheduling
+    /// math, so the approximation is fine) for quartz. Vacuously true (nothing to validate) once
     /// either value is missing or the movement type doesn't use power reserve at all.
     private var isWindReminderLeadTimeValid: Bool {
-        guard movementType == .manual || movementType == .automatic,
-              let windReminderLeadTimeHours, let powerReserveHours
-        else { return true }
-        return windReminderLeadTimeHours < powerReserveHours
+        guard let windReminderLeadTimeHours else { return true }
+        switch movementType {
+        case .manual, .automatic:
+            guard let powerReserveHours else { return true }
+            return windReminderLeadTimeHours < powerReserveHours
+        case .quartz:
+            guard let batteryLifeMonths else { return true }
+            return windReminderLeadTimeHours < Double(batteryLifeMonths) * 730
+        case nil:
+            return true
+        }
     }
 
     /// `powerReserveHours` only means something for movements that actually hold a wind —
@@ -110,11 +119,24 @@ struct AddWatchView: View {
         return powerReserveHours
     }
 
-    /// Same clearing rule as `effectivePowerReserveHours` — a lead time only means something
-    /// alongside a power reserve spec.
+    /// Unlike `effectivePowerReserveHours`/`effectiveBatteryLifeMonths`, a lead time is
+    /// meaningful for *any* set movement type (manual/automatic in hours, quartz in days via
+    /// `windReminderLeadTimeDaysBinding`) — only cleared when there's no movement type at all.
     private var effectiveWindReminderLeadTimeHours: Double? {
-        guard movementType == .manual || movementType == .automatic else { return nil }
+        guard movementType != nil else { return nil }
         return windReminderLeadTimeHours
+    }
+
+    /// Quartz's lead-time input is shown in days rather than hours — its multi-month timescale
+    /// makes hours an awkward unit to type — but still stored in the same
+    /// `windReminderLeadTimeHours` the manual/automatic path uses, so `Watch.windReminderDate`/
+    /// `NotificationManager` don't need a second unit-aware field, just this display-layer
+    /// conversion.
+    private var windReminderLeadTimeDaysBinding: Binding<Double?> {
+        Binding(
+            get: { windReminderLeadTimeHours.map { $0 / 24 } },
+            set: { windReminderLeadTimeHours = $0.map { $0 * 24 } }
+        )
     }
 
     /// `batteryLifeMonths` is quartz's analog to `powerReserveHours` — same clearing rule,
@@ -320,6 +342,18 @@ struct AddWatchView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                LabeledContent("Power Reserve Low Reminder") {
+                    HStack(spacing: 4) {
+                        TextField("0", value: windReminderLeadTimeDaysBinding, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .frame(maxWidth: 80)
+                        Text("days before empty")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         } header: {
             SectionHeader("Movement")
@@ -328,22 +362,18 @@ struct AddWatchView: View {
                 if movementType == .manual || movementType == .automatic {
                     Text("Power Reserve is how many hours the mainspring runs before needing winding again. Power Reserve Low Reminder is how long before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked.")
                 } else if movementType == .quartz {
-                    Text("Battery Life is the manufacturer's approximate battery duration, usually printed on the case back or in the manual (often 12–60 months). Log a replacement from the Workbench's Power Reserve section, or by checking \"This was a battery replacement\" when logging service, to reset the countdown.")
+                    Text("Battery Life is the manufacturer's approximate battery duration, usually printed on the case back or in the manual (often 12–60 months). Power Reserve Low Reminder is how many days before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked. Log a replacement from the Workbench's Power Reserve section, or by checking \"This was a battery replacement\" when logging service, to reset the countdown.")
                 }
                 if !isWindReminderLeadTimeValid {
-                    Label("Power Reserve Low Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Power Reserve Low Reminder must be less than \(movementType == .quartz ? "Battery Life" : "Power Reserve") — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
                 // Power reserve/battery life and the reminder lead time are always free to enter
                 // — see `isUnlocked`'s doc comment — this just clarifies that the notification
                 // itself needs the full version, without blocking data entry. No purchase button
                 // here; that flow already lives in Settings/Insights, this is informational only.
-                if movementType == .manual || movementType == .automatic {
-                    if !isUnlocked {
-                        Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
-                    }
-                } else if movementType == .quartz, !isUnlocked {
-                    Label("Reminders are a Full Version feature — battery life is still tracked for free. Unlock in Settings to get notified when it runs out.", systemImage: "lock")
+                if movementType != nil, !isUnlocked {
+                    Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
                 }
             }
         }
