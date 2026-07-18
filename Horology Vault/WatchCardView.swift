@@ -31,12 +31,13 @@ struct WatchCardView: View {
         entitlements.first?.isLifetimeUnlocked ?? false
     }
 
-    /// The power reserve bar is a full-version-only upgrade over the free depleted/not-depleted
-    /// badge (see `WatchCardView`'s badge overlay below) — free users keep exactly what they have
-    /// today rather than losing the badge until they unlock, matching how every other paid
-    /// feature in this app is scoped as additive, never a regression. Also respects the user's
-    /// own Settings toggle — turning it off falls back to the same depleted badge free users see,
-    /// rather than just hiding an otherwise-still-reserved bar.
+    /// The power reserve bar is a full-version-only *addition* alongside the free depleted/
+    /// not-depleted badge (see `WatchCardView`'s badge overlay below), not a replacement for it —
+    /// free users keep exactly what they have today, and unlocked users get the bar's richer
+    /// "how much is left" signal on top of the same unambiguous depleted badge everyone sees,
+    /// matching how every other paid feature in this app is scoped as additive, never a
+    /// regression. Also respects the user's own Settings toggle — turning it off falls back to
+    /// just the badge, same as a locked user, rather than leaving an otherwise-reserved empty slot.
     private var showsPowerReserveBar: Bool {
         isUnlocked && isPowerReserveBarEnabled && watch.powerReserveRemainingFraction != nil
     }
@@ -64,9 +65,12 @@ struct WatchCardView: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    // Once unlocked, the bar below already conveys "depleted" (empty, red) more
-                    // informatively than this binary badge, so it steps aside rather than doubling up.
-                    if !showsPowerReserveBar && watch.isPowerReserveDepleted {
+                    // Shown whenever depleted, regardless of whether the premium bar is also
+                    // showing — an empty bar alone read as too easy to miss at a glance, so the
+                    // badge now gives every user (free or unlocked) the same unambiguous "needs
+                    // winding now" signal, with the bar (when present) still doing the extra job
+                    // of showing exactly how depleted watches got there relative to non-depleted ones.
+                    if watch.isPowerReserveDepleted {
                         Image(systemName: "gauge.with.needle")
                             .font(.caption)
                             .padding(6)
@@ -165,12 +169,12 @@ private struct PowerReserveBarView: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(.quaternary)
-                // At fraction 0 this would otherwise be a 0pt-wide fill — technically red per
-                // `tint`, but invisible, so "empty" looked identical to the unfilled gray track.
-                // A small minimum width keeps the red visible right down to fully depleted.
+                // Genuinely empty at fraction 0 — the depleted badge (shown alongside this bar,
+                // see WatchCardView's badge overlay) now owns the "it's empty" signal, so this no
+                // longer needs an artificial minimum-width sliver just to stay visible.
                 Capsule()
                     .fill(tint)
-                    .frame(width: max(geometry.size.width * fraction, 3))
+                    .frame(width: geometry.size.width * fraction)
             }
         }
         .frame(height: 4)

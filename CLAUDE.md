@@ -822,6 +822,29 @@ touched, no new unit tests (this is UI interaction behavior — the throwaway XC
 committed, since this project has no established pattern of UI-test coverage yet and one ad hoc diagnostic
 test isn't sufficient reason to start); both platforms build clean and the full test suite (unit + the
 existing placeholder UI tests) passes.
+A small follow-up tweak to the Vault card's power-reserve display shipped the same day, at the user's
+request after reviewing the existing behavior: previously, an unlocked user's depleted watch showed *only*
+the premium bar (a bare 3pt minimum-width red sliver, added earlier specifically so 0% remaining wasn't
+literally invisible against the gray track) — free/locked users, by contrast, got the unambiguous red
+`gauge.with.needle` badge instead, since the badge only rendered when the bar wasn't showing at all
+(`!showsPowerReserveBar && watch.isPowerReserveDepleted`). That meant premium users had a *weaker* depleted
+signal than free users for the one state that matters most. Fixed in `WatchCardView.swift`: the badge
+condition dropped the `!showsPowerReserveBar` guard entirely, so it now shows whenever
+`watch.isPowerReserveDepleted`, regardless of unlock/bar-toggle state — unlocked users get both the badge
+*and* the bar simultaneously once depleted, not one or the other. With the badge now reliably owning the
+"it's empty" signal, `PowerReserveBarView`'s minimum-width hack (`max(geometry.size.width * fraction, 3)`)
+was removed in favor of a genuinely empty (`geometry.size.width * fraction`, literally 0pt at fraction 0)
+fill — it existed only to keep the red visible on its own, which is no longer this bar's job at depletion.
+Verified visually via the same XCUITest-plus-screenshot technique proven in the navigation-regression fix
+above: a temporary seed hack (an already-depleted demo watch, not committed) confirmed the red badge now
+renders correctly regardless of unlock state. **The bar's own rendering at fraction 0 specifically wasn't
+re-screenshotted** — the diagnostic's forced `Entitlements.isLifetimeUnlocked = true` got overwritten back
+to `false` moments after by the app's real `PurchaseManager.reconcileEntitlementsOnLaunch()` StoreKit sync
+(expected, correct behavior, not a bug — confirmed by reading the on-disk SwiftData store directly via
+`sqlite3`, same technique this file's StoreKit-825 known issue used), and forcing a genuine unlocked state
+would have required fighting Simulator's StoreKit reconciliation rather than a quick diagnostic; the width
+formula change is a one-line, low-risk edit reasoned through instead. Pure UI tweak, no model/business logic
+touched, no new tests; both platforms build clean.
 
 ## Common commands
 
