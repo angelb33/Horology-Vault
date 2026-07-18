@@ -918,6 +918,29 @@ life and a 3-year-old flagged replacement record, not committed): the Vault card
 depleted badge, proving the full chain (`ServiceRecord` flag → `lastBatteryReplacementDate` →
 `lastPoweredDate` → `powerReserveExpiresAt` → `isPowerReserveDepleted` → `WatchCardView`) works end-to-end.
 Both platforms build clean and the full test suite (123 tests) passes.
+Immediately after, the user asked to test Wind Reminder ("Power Reserve Low") scheduling for quartz too.
+Checking `NotificationManager.scheduleWindReminder`/`resolvedWindReminderDate` directly showed neither one
+ever checked `movementType` at all — they're already fully generic, reading only `Watch.windReminderDate`
+(itself just `powerReserveExpiresAt` minus `windReminderLeadTimeHours`, no movement-type branch of its own).
+Since `powerReserveExpiresAt` became quartz-aware in the change above, `windReminderDate` was, in principle,
+already quartz-capable — just never exercised by a test, since no existing test set `batteryLifeMonths` and
+`windReminderLeadTimeHours` on the same watch. Added `windReminderDateWorksForQuartz` and
+`windReminderDateNilForQuartzWithoutBatteryLifeMonths` to `WatchModelTests.swift`, both passing, confirming
+the computation is correct — and fixed a stale comment in `NotificationManagerTests.swift` that cited
+"quartz" as an example of a case `resolvedWindReminderDate` always returns `nil` for, which stopped being
+true. **Important caveat surfaced by this check, not yet acted on:** `AddWatchView`'s Movement section still
+only shows the `windReminderLeadTimeHours` input field for manual/automatic (a deliberate scope decision
+from the quartz power-reserve change above — "Power Reserve Low needs an hours-based lead time, which only
+exists for manual/automatic"). So although the model/notification layer now correctly *supports* a quartz
+Wind Reminder, there's currently no way for a real user to actually set one through the app's own UI — the
+tests just added prove the math is sound, not that the feature is reachable yet. Whether to add that UI
+field (mirroring "Battery Life" months-based, presumably a days-or-weeks-based lead time given quartz's
+much longer timescale than mechanical hours) is an open decision for a future session, not yet requested or
+scoped. One flaky, environment-only UI test failure was observed during this verification pass
+("Failed to terminate com.angelburgos.HorologyVault" in `Horology_Vault_UITests.testExample()`, a bare
+launch test with no assertions) — re-running just the unit test target (`Horology VaultTests`, excluding
+the UI test bundle) passed clean, confirming this was a macOS test-harness process-teardown timing issue,
+not a real regression. Both platforms build clean.
 
 ## Common commands
 

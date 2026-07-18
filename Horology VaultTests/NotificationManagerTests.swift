@@ -104,7 +104,7 @@ struct NotificationManagerTests {
         #expect(resolved == nil)
     }
 
-    @Test("resolvedWindReminderDate is nil without a reminder date (e.g. quartz, or no power reserve spec yet)")
+    @Test("resolvedWindReminderDate is nil without a reminder date (e.g. no lead time or power reserve spec set yet)")
     func windReminderNilWithoutDate() {
         let resolved = NotificationManager.resolvedWindReminderDate(
             isUnlocked: true, globallyEnabled: true, perWatchEnabled: true, windReminderDate: nil

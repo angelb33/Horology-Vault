@@ -546,6 +546,34 @@ struct WatchModelTests {
         #expect(watch.windReminderDate == wound.addingTimeInterval((42 - 6) * 3600))
     }
 
+    // windReminderDate itself never checks movementType — it's purely
+    // powerReserveExpiresAt minus windReminderLeadTimeHours, and powerReserveExpiresAt became
+    // quartz-aware when quartz power-reserve tracking was added. So the computation already works
+    // for quartz even though AddWatchView's Movement section doesn't currently expose a lead-time
+    // field for it (only Power Reserve Empty extends to quartz in the UI today, not Power Reserve
+    // Low) — these tests document that the underlying math is correct and movement-type-agnostic,
+    // ready for that field to be added later without any model-layer changes.
+    @Test("windReminderDate also resolves correctly for quartz, driven by batteryLifeMonths instead of powerReserveHours")
+    func windReminderDateWorksForQuartz() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        let replaced = Date(timeIntervalSince1970: 0)
+        watch.serviceRecords = [ServiceRecord(datePerformed: replaced, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true)]
+        watch.batteryLifeMonths = 24
+        watch.windReminderLeadTimeHours = 720 // 30 days
+        let expiresAt = Calendar.current.date(byAdding: .month, value: 24, to: replaced)!
+        #expect(watch.windReminderDate == expiresAt.addingTimeInterval(-720 * 3600))
+    }
+
+    @Test("windReminderDate is nil for quartz without batteryLifeMonths, even with a lead time set")
+    func windReminderDateNilForQuartzWithoutBatteryLifeMonths() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        watch.serviceRecords = [ServiceRecord(datePerformed: .now, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true)]
+        watch.windReminderLeadTimeHours = 720
+        #expect(watch.windReminderDate == nil)
+    }
+
     // MARK: - Cascade delete: ServiceRecord, WearLog, ProvenanceDoc
 
     @Test("Deleting a Watch cascade-deletes its ServiceRecords")
