@@ -121,15 +121,35 @@ struct ContentView: View {
     /// `effectiveColorScheme` never passing `nil` to `.preferredColorScheme` on macOS.
     private var splitView: some View {
         NavigationSplitView {
-            List(Section.allCases, selection: $selection) { section in
-                Label {
-                    Text(section.rawValue)
-                } icon: {
-                    Image(systemName: section.systemImage)
-                        .foregroundStyle(accentColorOption.color)
+            List {
+                ForEach(Section.allCases) { section in
+                    Button {
+                        selection = section
+                    } label: {
+                        Label {
+                            Text(section.rawValue)
+                        } icon: {
+                            Image(systemName: section.systemImage)
+                                .foregroundStyle(accentColorOption.color)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(section == selection ? accentColorOption.color.opacity(0.25) : Color.clear)
+                            .padding(.horizontal, 6)
+                    )
+                    .listRowBackground(Color.clear)
                 }
-                .tag(section)
             }
+            #if os(macOS)
+            .focusable()
+            .onMoveCommand(perform: moveSidebarSelection)
+            #endif
             .navigationTitle("Horology Vault")
             #if os(macOS)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -160,6 +180,32 @@ struct ContentView: View {
             }
         }
     }
+
+    /// Drives arrow-key navigation through the sidebar. The sidebar rows are plain `Button`s
+    /// rather than a native `List(selection:)` (see `splitView`'s custom inset `.background`) so
+    /// the selection highlight can use the user's chosen accent color — `.sidebar`-style
+    /// `List(selection:)` always paints its native highlight with the system accent-color
+    /// preference, which no public SwiftUI tint modifier can override. Losing the native
+    /// selection wiring also loses its built-in arrow-key handling, so this replaces it manually.
+    /// `onMoveCommand`/`MoveCommandDirection` are macOS/tvOS-only APIs, hence the `#if os(macOS)`
+    /// both here and at the `splitView` call site.
+    #if os(macOS)
+    private func moveSidebarSelection(_ direction: MoveCommandDirection) {
+        let cases = Section.allCases
+        guard let current = selection, let index = cases.firstIndex(of: current) else {
+            selection = cases.first
+            return
+        }
+        switch direction {
+        case .up:
+            selection = cases[max(cases.startIndex, index - 1)]
+        case .down:
+            selection = cases[min(cases.index(before: cases.endIndex), index + 1)]
+        default:
+            break
+        }
+    }
+    #endif
 
     /// Lives on the sidebar's own toolbar (not any individual section's) so it's reachable
     /// regardless of which detail view is showing — matches the OS notification-center pattern
