@@ -53,6 +53,10 @@ final class Watch {
     var movementType: MovementType?
     var powerReserveHours: Double?
     var windReminderLeadTimeHours: Double?
+    /// Quartz's analog to `powerReserveHours` — the manufacturer's approximate battery life, in
+    /// months rather than hours since that's the natural unit at this timescale (usually
+    /// 12–60 months). Only meaningful when `movementType == .quartz`.
+    var batteryLifeMonths: Int?
     var serviceIntervalYears: Int?
     var isServiceDueReminderEnabled: Bool?
     var isWindReminderEnabled: Bool?
@@ -116,6 +120,7 @@ final class Watch {
         movementType: MovementType? = nil,
         powerReserveHours: Double? = nil,
         windReminderLeadTimeHours: Double? = nil,
+        batteryLifeMonths: Int? = nil,
         serialNumber: String? = nil,
         caliber: String? = nil,
         caseMaterial: String? = nil,
@@ -140,6 +145,7 @@ final class Watch {
         self.movementType = movementType
         self.powerReserveHours = powerReserveHours
         self.windReminderLeadTimeHours = windReminderLeadTimeHours
+        self.batteryLifeMonths = batteryLifeMonths
         self.serialNumber = serialNumber
         self.caliber = caliber
         self.caseMaterial = caseMaterial
@@ -275,10 +281,13 @@ final class Watch {
 
     /// The date power was last put into the movement. For `.manual` movements this is only
     /// ever an explicit wind; for `.automatic` movements, wearing the watch also recharges
-    /// the mainspring via wrist motion, so the most recent `WearLog` entry counts too.
-    /// `.quartz` (and unset) movements don't track power reserve at all. Note: an automatic
-    /// sitting in a watch winder — not worn, not explicitly wound — isn't visible to the app
-    /// and will read as depleted even if it isn't; a known limitation rather than a bug.
+    /// the mainspring via wrist motion, so the most recent `WearLog` entry counts too. For
+    /// `.quartz` movements it's the most recent logged battery replacement
+    /// (`lastBatteryReplacementDate`), falling back to `acquisitionDate` — assuming a
+    /// factory-fresh battery at purchase — if the battery has never been replaced, the same
+    /// fallback `serviceDueDate` uses for `lastServiceDate`. Note: an automatic sitting in a
+    /// watch winder — not worn, not explicitly wound — isn't visible to the app and will read as
+    /// depleted even if it isn't; a known limitation rather than a bug.
     var lastPoweredDate: Date? {
         guard let movementType else { return nil }
         switch movementType {
@@ -287,15 +296,32 @@ final class Watch {
         case .automatic:
             return [lastWoundDate, wearLogs.map(\.dateWorn).max()].compactMap { $0 }.max()
         case .quartz:
-            return nil
+            return lastBatteryReplacementDate ?? acquisitionDate
         }
     }
 
-    /// When the mainspring is expected to run down, derived from `lastPoweredDate` plus the
-    /// user-entered `powerReserveHours` spec. `nil` if either is missing.
+    /// The most recent `ServiceRecord` flagged `isBatteryReplacement`, or `nil` if the battery
+    /// has never been logged as replaced. Feeds `lastPoweredDate` for quartz watches — see its
+    /// doc comment for the acquisition-date fallback this feeds into.
+    var lastBatteryReplacementDate: Date? {
+        serviceRecords.filter { $0.isBatteryReplacement ?? false }.map(\.datePerformed).max()
+    }
+
+    /// When the power source is expected to run out, derived from `lastPoweredDate` plus a
+    /// movement-appropriate duration spec: `powerReserveHours` (manual/automatic) or
+    /// `batteryLifeMonths` (quartz) — different units for the same underlying concept, since
+    /// hours suits a mainspring's timescale and months suits a battery's. `nil` if the movement
+    /// type, `lastPoweredDate`, or the relevant spec is missing.
     var powerReserveExpiresAt: Date? {
-        guard let lastPoweredDate, let powerReserveHours else { return nil }
-        return lastPoweredDate.addingTimeInterval(powerReserveHours * 3600)
+        guard let movementType, let lastPoweredDate else { return nil }
+        switch movementType {
+        case .manual, .automatic:
+            guard let powerReserveHours else { return nil }
+            return lastPoweredDate.addingTimeInterval(powerReserveHours * 3600)
+        case .quartz:
+            guard let batteryLifeMonths else { return nil }
+            return Calendar.current.date(byAdding: .month, value: batteryLifeMonths, to: lastPoweredDate)
+        }
     }
 
     var isPowerReserveDepleted: Bool {
@@ -303,16 +329,19 @@ final class Watch {
         return powerReserveExpiresAt < Date()
     }
 
-    /// Fraction of the power reserve remaining, from `1.0` (just wound/worn) down to `0.0`
-    /// (fully depleted) — clamped so an overdue watch reads as exactly empty rather than
-    /// negative. `nil` for the same reasons `powerReserveExpiresAt` is nil (quartz, unset
-    /// movement, or no power-reserve spec yet). Backs the Vault grid's power reserve bar, a
+    /// Fraction of the power source remaining, from `1.0` (just wound/worn/battery-replaced)
+    /// down to `0.0` (fully depleted) — clamped so an overdue watch reads as exactly empty
+    /// rather than negative. Derived purely from `lastPoweredDate`/`powerReserveExpiresAt`
+    /// rather than duplicating `powerReserveExpiresAt`'s hours-vs-months branching, so this
+    /// works the same way for quartz without its own movement-type switch. `nil` for the same
+    /// reasons `powerReserveExpiresAt` is nil. Backs the Vault grid's power reserve bar, a
     /// full-version-only upgrade over the free depleted/not-depleted badge — see
     /// `WatchCardView`.
     var powerReserveRemainingFraction: Double? {
-        guard let lastPoweredDate, let powerReserveHours, powerReserveHours > 0 else { return nil }
-        let elapsedHours = Date().timeIntervalSince(lastPoweredDate) / 3600
-        let remainingFraction = 1 - (elapsedHours / powerReserveHours)
+        guard let lastPoweredDate, let powerReserveExpiresAt else { return nil }
+        let totalDuration = powerReserveExpiresAt.timeIntervalSince(lastPoweredDate)
+        guard totalDuration > 0 else { return nil }
+        let remainingFraction = 1 - (Date().timeIntervalSince(lastPoweredDate) / totalDuration)
         return min(max(remainingFraction, 0), 1)
     }
 

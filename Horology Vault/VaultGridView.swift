@@ -79,6 +79,10 @@ struct VaultGridView: View {
                                         Button("Wind Watch", systemImage: "arrow.clockwise.circle") {
                                             logWindNow(for: watch)
                                         }
+                                    } else if watch.movementType == .quartz {
+                                        Button("Battery Replaced", systemImage: "battery.100") {
+                                            logBatteryReplacement(for: watch)
+                                        }
                                     }
                                 }
                             }
@@ -151,6 +155,15 @@ struct VaultGridView: View {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
+    }
+
+    /// Quicker access to Power Reserve's "Battery Replaced" action (normally reached via
+    /// `WatchDetailView`'s Power Reserve section) directly from the Vault grid's context menu,
+    /// same insert as `logBatteryReplacement()` there.
+    private func logBatteryReplacement(for watch: Watch) {
+        let record = ServiceRecord(datePerformed: Date(), serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true, watch: watch)
+        modelContext.insert(record)
         NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 

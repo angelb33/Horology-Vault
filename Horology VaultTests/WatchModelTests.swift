@@ -251,13 +251,86 @@ struct WatchModelTests {
         #expect(watch.lastPoweredDate == laterWind)
     }
 
-    @Test("For a quartz movement, lastPoweredDate is always nil")
-    func lastPoweredDateForQuartzIsAlwaysNil() {
-        let watch = makeWatch()
+    @Test("For a quartz movement, lastPoweredDate ignores WindLog/WearLog entries entirely")
+    func lastPoweredDateForQuartzIgnoresWindAndWearLogs() {
+        let watch = makeWatch(acquisitionDate: Date(timeIntervalSince1970: 500))
         watch.movementType = .quartz
         watch.windLogs = [WindLog(dateWound: .now)]
         watch.wearLogs = [WearLog(dateWorn: .now)]
-        #expect(watch.lastPoweredDate == nil)
+        #expect(watch.lastPoweredDate == watch.acquisitionDate)
+    }
+
+    @Test("For a quartz movement with no logged battery replacement, lastPoweredDate falls back to acquisitionDate")
+    func lastPoweredDateForQuartzFallsBackToAcquisitionDate() {
+        let acquisitionDate = Date(timeIntervalSince1970: 1_000)
+        let watch = makeWatch(acquisitionDate: acquisitionDate)
+        watch.movementType = .quartz
+        #expect(watch.lastPoweredDate == acquisitionDate)
+    }
+
+    @Test("For a quartz movement, lastPoweredDate uses the most recent battery-replacement ServiceRecord")
+    func lastPoweredDateForQuartzUsesMostRecentBatteryReplacement() {
+        let watch = makeWatch(acquisitionDate: Date(timeIntervalSince1970: 0))
+        watch.movementType = .quartz
+        let earlierReplacement = Date(timeIntervalSince1970: 1_000)
+        let laterReplacement = Date(timeIntervalSince1970: 5_000)
+        watch.serviceRecords = [
+            ServiceRecord(datePerformed: earlierReplacement, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true),
+            ServiceRecord(datePerformed: laterReplacement, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true)
+        ]
+        #expect(watch.lastPoweredDate == laterReplacement)
+    }
+
+    @Test("lastBatteryReplacementDate ignores service records not flagged isBatteryReplacement")
+    func lastBatteryReplacementDateIgnoresUnflaggedRecords() {
+        let watch = makeWatch()
+        watch.serviceRecords = [
+            ServiceRecord(datePerformed: .now, serviceType: "Full Service", accuracyDeltaSPD: 2, isBatteryReplacement: false),
+            ServiceRecord(datePerformed: .now, serviceType: "Polish", accuracyDeltaSPD: 0)
+        ]
+        #expect(watch.lastBatteryReplacementDate == nil)
+    }
+
+    @Test("powerReserveExpiresAt for quartz is lastPoweredDate plus batteryLifeMonths")
+    func powerReserveExpiresAtForQuartzAddsMonthsToLastPoweredDate() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        let replaced = Date(timeIntervalSince1970: 0)
+        watch.serviceRecords = [ServiceRecord(datePerformed: replaced, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true)]
+        watch.batteryLifeMonths = 24
+        #expect(watch.powerReserveExpiresAt == Calendar.current.date(byAdding: .month, value: 24, to: replaced))
+    }
+
+    @Test("powerReserveExpiresAt for quartz is nil without batteryLifeMonths, even with a replacement logged")
+    func powerReserveExpiresAtForQuartzIsNilWithoutBatteryLifeMonths() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        watch.serviceRecords = [ServiceRecord(datePerformed: .now, serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true)]
+        #expect(watch.powerReserveExpiresAt == nil)
+    }
+
+    @Test("A quartz watch is power-reserve depleted once now is past its battery's expected expiry")
+    func isPowerReserveDepletedForQuartzWhenPastExpiration() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        watch.serviceRecords = [ServiceRecord(
+            datePerformed: Calendar.current.date(byAdding: .month, value: -30, to: .now)!,
+            serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true
+        )]
+        watch.batteryLifeMonths = 24
+        #expect(watch.isPowerReserveDepleted == true)
+    }
+
+    @Test("powerReserveRemainingFraction works for quartz the same way it does for manual/automatic")
+    func powerReserveRemainingFractionWorksForQuartz() {
+        let watch = makeWatch()
+        watch.movementType = .quartz
+        watch.serviceRecords = [ServiceRecord(
+            datePerformed: Calendar.current.date(byAdding: .month, value: -12, to: .now)!,
+            serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true
+        )]
+        watch.batteryLifeMonths = 24
+        #expect(abs(watch.powerReserveRemainingFraction! - 0.5) < 0.02)
     }
 
     @Test("powerReserveExpiresAt is nil when powerReserveHours isn't set, even with a wind logged")

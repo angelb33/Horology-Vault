@@ -29,6 +29,7 @@ struct AddWatchView: View {
     @State private var movementType: MovementType?
     @State private var powerReserveHours: Double?
     @State private var windReminderLeadTimeHours: Double?
+    @State private var batteryLifeMonths: Int?
 
     @State private var serialNumber: String
     @State private var caliber: String
@@ -66,6 +67,7 @@ struct AddWatchView: View {
         _movementType = State(initialValue: watchToEdit?.movementType)
         _powerReserveHours = State(initialValue: watchToEdit?.powerReserveHours)
         _windReminderLeadTimeHours = State(initialValue: watchToEdit?.windReminderLeadTimeHours)
+        _batteryLifeMonths = State(initialValue: watchToEdit?.batteryLifeMonths)
         _serialNumber = State(initialValue: watchToEdit?.serialNumber ?? "")
         _caliber = State(initialValue: watchToEdit?.caliber ?? "")
         _caseMaterial = State(initialValue: watchToEdit?.caseMaterial ?? "")
@@ -113,6 +115,13 @@ struct AddWatchView: View {
     private var effectiveWindReminderLeadTimeHours: Double? {
         guard movementType == .manual || movementType == .automatic else { return nil }
         return windReminderLeadTimeHours
+    }
+
+    /// `batteryLifeMonths` is quartz's analog to `powerReserveHours` — same clearing rule,
+    /// mirrored for the opposite movement type.
+    private var effectiveBatteryLifeMonths: Int? {
+        guard movementType == .quartz else { return nil }
+        return batteryLifeMonths
     }
 
     /// `DatePicker` can't bind directly to `Date?`, so these optional date fields pair a concrete
@@ -298,6 +307,19 @@ struct AddWatchView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            } else if movementType == .quartz {
+                LabeledContent("Battery Life") {
+                    HStack(spacing: 4) {
+                        TextField("0", value: $batteryLifeMonths, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                            .frame(maxWidth: 80)
+                        Text("months")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         } header: {
             SectionHeader("Movement")
@@ -306,18 +328,22 @@ struct AddWatchView: View {
                 if movementType == .manual || movementType == .automatic {
                     Text("Power Reserve is how many hours the mainspring runs before needing winding again. Power Reserve Low Reminder is how long before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked.")
                 } else if movementType == .quartz {
-                    Text("Quartz watches run on a battery, not a wind — there's nothing to track here. Log a battery replacement as a normal service record instead.")
+                    Text("Battery Life is the manufacturer's approximate battery duration, usually printed on the case back or in the manual (often 12–60 months). Log a replacement from the Workbench's Power Reserve section, or by checking \"This was a battery replacement\" when logging service, to reset the countdown.")
                 }
                 if !isWindReminderLeadTimeValid {
                     Label("Power Reserve Low Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
-                // Power reserve and the reminder lead time are always free to enter — see
-                // `isUnlocked`'s doc comment — this just clarifies that the notification itself
-                // needs the full version, without blocking data entry. No purchase button here;
-                // that flow already lives in Settings/Insights, this is informational only.
-                if (movementType == .manual || movementType == .automatic) && !isUnlocked {
-                    Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
+                // Power reserve/battery life and the reminder lead time are always free to enter
+                // — see `isUnlocked`'s doc comment — this just clarifies that the notification
+                // itself needs the full version, without blocking data entry. No purchase button
+                // here; that flow already lives in Settings/Insights, this is informational only.
+                if movementType == .manual || movementType == .automatic {
+                    if !isUnlocked {
+                        Label("Reminders are a Full Version feature — power reserve is still tracked for free. Unlock in Settings to get notified before it runs out.", systemImage: "lock")
+                    }
+                } else if movementType == .quartz, !isUnlocked {
+                    Label("Reminders are a Full Version feature — battery life is still tracked for free. Unlock in Settings to get notified when it runs out.", systemImage: "lock")
                 }
             }
         }
@@ -412,6 +438,7 @@ struct AddWatchView: View {
             watchToEdit.movementType = movementType
             watchToEdit.powerReserveHours = effectivePowerReserveHours
             watchToEdit.windReminderLeadTimeHours = effectiveWindReminderLeadTimeHours
+            watchToEdit.batteryLifeMonths = effectiveBatteryLifeMonths
             watchToEdit.serialNumber = trimmedSerialNumber.isEmpty ? nil : trimmedSerialNumber
             watchToEdit.caliber = trimmedCaliber.isEmpty ? nil : trimmedCaliber
             watchToEdit.caseMaterial = trimmedCaseMaterial.isEmpty ? nil : trimmedCaseMaterial
@@ -437,6 +464,7 @@ struct AddWatchView: View {
                 movementType: movementType,
                 powerReserveHours: effectivePowerReserveHours,
                 windReminderLeadTimeHours: effectiveWindReminderLeadTimeHours,
+                batteryLifeMonths: effectiveBatteryLifeMonths,
                 serialNumber: trimmedSerialNumber.isEmpty ? nil : trimmedSerialNumber,
                 caliber: trimmedCaliber.isEmpty ? nil : trimmedCaliber,
                 caseMaterial: trimmedCaseMaterial.isEmpty ? nil : trimmedCaseMaterial,

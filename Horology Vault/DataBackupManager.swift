@@ -191,6 +191,7 @@ enum DataBackupManager {
                 movementType: watch.movementType,
                 powerReserveHours: watch.powerReserveHours,
                 windReminderLeadTimeHours: watch.windReminderLeadTimeHours,
+                batteryLifeMonths: watch.batteryLifeMonths,
                 serviceIntervalYears: watch.serviceIntervalYears,
                 isServiceDueReminderEnabled: watch.isServiceDueReminderEnabled,
                 isWindReminderEnabled: watch.isWindReminderEnabled,
@@ -209,7 +210,7 @@ enum DataBackupManager {
                 maintenanceExpectedPickupDate: watch.maintenanceExpectedPickupDate,
                 maintenanceNotes: watch.maintenanceNotes,
                 serviceRecords: watch.serviceRecords.map {
-                    ServiceRecordBackup(datePerformed: $0.datePerformed, serviceType: $0.serviceType, accuracyDeltaSPD: $0.accuracyDeltaSPD)
+                    ServiceRecordBackup(datePerformed: $0.datePerformed, serviceType: $0.serviceType, accuracyDeltaSPD: $0.accuracyDeltaSPD, isBatteryReplacement: $0.isBatteryReplacement)
                 },
                 wearLogs: watch.wearLogs.map {
                     WearLogBackup(dateWorn: $0.dateWorn, notes: $0.notes)
@@ -279,6 +280,7 @@ enum DataBackupManager {
                 movementType: watchBackup.movementType,
                 powerReserveHours: watchBackup.powerReserveHours,
                 windReminderLeadTimeHours: watchBackup.windReminderLeadTimeHours,
+                batteryLifeMonths: watchBackup.batteryLifeMonths,
                 serialNumber: watchBackup.serialNumber,
                 caliber: watchBackup.caliber,
                 caseMaterial: watchBackup.caseMaterial,
@@ -299,7 +301,7 @@ enum DataBackupManager {
             watch.maintenanceNotes = watchBackup.maintenanceNotes
             context.insert(watch)
             for record in watchBackup.serviceRecords {
-                context.insert(ServiceRecord(datePerformed: record.datePerformed, serviceType: record.serviceType, accuracyDeltaSPD: record.accuracyDeltaSPD, watch: watch))
+                context.insert(ServiceRecord(datePerformed: record.datePerformed, serviceType: record.serviceType, accuracyDeltaSPD: record.accuracyDeltaSPD, isBatteryReplacement: record.isBatteryReplacement, watch: watch))
             }
             for entry in watchBackup.wearLogs {
                 context.insert(WearLog(dateWorn: entry.dateWorn, notes: entry.notes, watch: watch))
@@ -395,6 +397,7 @@ private struct WatchBackup: Codable {
     var movementType: MovementType?
     var powerReserveHours: Double?
     var windReminderLeadTimeHours: Double?
+    var batteryLifeMonths: Int?
     var serviceIntervalYears: Int?
     var isServiceDueReminderEnabled: Bool?
     var isWindReminderEnabled: Bool?
@@ -435,6 +438,7 @@ private struct ServiceRecordBackup: Codable {
     var datePerformed: Date
     var serviceType: String
     var accuracyDeltaSPD: Double
+    var isBatteryReplacement: Bool?
 }
 
 private struct WearLogBackup: Codable {

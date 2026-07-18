@@ -214,9 +214,15 @@ struct WatchDetailView: View {
                     }
                 }
                 .disabled(!isServiceDueReminderEnabledGlobally)
+                // Power Reserve Low needs an hours-based lead time, which only exists for
+                // manual/automatic (see AddWatchView's Movement section); Power Reserve Empty
+                // needs no lead time at all — just powerReserveExpiresAt, which quartz now
+                // computes too via batteryLifeMonths — so it's available for any set movement type.
                 if watch.movementType == .manual || watch.movementType == .automatic {
                     Toggle("Power Reserve Low Reminder", isOn: windReminderEnabledBinding)
                         .disabled(!isWindReminderEnabledGlobally)
+                }
+                if watch.movementType != nil {
                     Toggle("Power Reserve Empty Reminder", isOn: powerReserveDepletedReminderEnabledBinding)
                         .disabled(!isPowerReserveDepletedReminderEnabledGlobally)
                 }
@@ -404,8 +410,11 @@ struct WatchDetailView: View {
             modelContext.delete(sorted[index])
         }
         // Deleting a record can change lastServiceDate/serviceDueDate, same reasoning
-        // AddServiceRecordView's save() already reschedules after logging one.
+        // AddServiceRecordView's save() already reschedules after logging one. A deleted record
+        // can also have been a battery replacement, shifting a quartz watch's
+        // powerReserveExpiresAt — harmless no-op reschedule for non-quartz watches.
         NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
     private var wearLogSection: some View {
@@ -452,24 +461,38 @@ struct WatchDetailView: View {
 
     @ViewBuilder
     private var powerReserveSection: some View {
-        if watch.movementType == .manual || watch.movementType == .automatic {
+        if let movementType = watch.movementType {
             Section {
-                Button("Wind Watch") { logWindNow() }
+                if movementType == .quartz {
+                    Button("Battery Replaced") { logBatteryReplacement() }
+                } else {
+                    Button("Wind Watch") { logWindNow() }
+                }
 
                 powerReserveStatus
 
-                ForEach(watch.windLogs.sorted(by: { $0.dateWound > $1.dateWound })) { entry in
-                    Text(entry.dateWound.formatted(date: .abbreviated, time: .shortened))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                // Wind history has its own log here since WindLog is quartz-inapplicable and
+                // otherwise invisible elsewhere; battery replacements are ServiceRecords, so
+                // they already appear in Service History below without needing a second list.
+                if movementType != .quartz {
+                    ForEach(watch.windLogs.sorted(by: { $0.dateWound > $1.dateWound })) { entry in
+                        Text(entry.dateWound.formatted(date: .abbreviated, time: .shortened))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .onDelete(perform: deleteWindLogs)
                 }
-                .onDelete(perform: deleteWindLogs)
             } header: {
                 SectionHeader("Power Reserve")
             } footer: {
-                Text(watch.movementType == .automatic
-                     ? "Tracks how long the mainspring runs before this watch needs winding — wearing it also recharges the reserve."
-                     : "Tracks how long the mainspring runs before this watch needs winding again.")
+                switch movementType {
+                case .automatic:
+                    Text("Tracks how long the mainspring runs before this watch needs winding — wearing it also recharges the reserve.")
+                case .manual:
+                    Text("Tracks how long the mainspring runs before this watch needs winding again.")
+                case .quartz:
+                    Text("Tracks how long the battery lasts before it needs replacing. Logging a replacement here also adds a Service History entry below.")
+                }
             }
         }
     }
@@ -486,8 +509,11 @@ struct WatchDetailView: View {
 
     @ViewBuilder
     private var powerReserveStatus: some View {
-        if watch.powerReserveHours == nil {
-            Text("Set a power reserve in Edit Watch to track when this watch runs down.")
+        let hasSpec = watch.movementType == .quartz ? watch.batteryLifeMonths != nil : watch.powerReserveHours != nil
+        if !hasSpec {
+            Text(watch.movementType == .quartz
+                 ? "Set a battery life in Edit Watch to track when this watch runs down."
+                 : "Set a power reserve in Edit Watch to track when this watch runs down.")
                 .foregroundStyle(.secondary)
         } else if let expiresAt = watch.powerReserveExpiresAt {
             if watch.isPowerReserveDepleted {
@@ -500,6 +526,8 @@ struct WatchDetailView: View {
         } else {
             Text(watch.movementType == .automatic
                  ? "Log a wind or wear it to start tracking power reserve."
+                 : watch.movementType == .quartz
+                 ? "Log a battery replacement to start tracking."
                  : "Log a wind to start tracking power reserve.")
                 .foregroundStyle(.secondary)
         }
@@ -509,6 +537,17 @@ struct WatchDetailView: View {
         let entry = WindLog(watch: watch)
         modelContext.insert(entry)
         NotificationManager.scheduleWindReminder(for: watch, isUnlocked: isUnlocked)
+        NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
+    }
+
+    /// Quartz's analog to `logWindNow()` — a fast path that logs a battery replacement without
+    /// the full "Log Service" form. Inserts a real `ServiceRecord` (so it shows in Service
+    /// History like any other entry) flagged `isBatteryReplacement`, which is what
+    /// `Watch.lastBatteryReplacementDate` — and so `lastPoweredDate`/`powerReserveExpiresAt` —
+    /// actually reads.
+    private func logBatteryReplacement() {
+        let record = ServiceRecord(datePerformed: Date(), serviceType: "Battery Replacement", accuracyDeltaSPD: 0, isBatteryReplacement: true, watch: watch)
+        modelContext.insert(record)
         NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
     }
 
@@ -712,6 +751,7 @@ private struct AddServiceRecordView: View {
     @State private var datePerformed = Date()
     @State private var serviceType = ""
     @State private var accuracyDeltaSPD: Double?
+    @State private var isBatteryReplacement = false
 
     private var canSave: Bool {
         !serviceType.trimmingCharacters(in: .whitespaces).isEmpty
@@ -727,6 +767,12 @@ private struct AddServiceRecordView: View {
                 Section {
                     DatePicker("Date Performed", selection: $datePerformed, displayedComponents: .date)
                     TextField("Service Type", text: $serviceType)
+                    // Structured, not guessed from serviceType's free text — this is what
+                    // Watch.lastBatteryReplacementDate actually reads, so quartz power-reserve
+                    // tracking resets reliably regardless of how this entry's text is worded.
+                    if watch.movementType == .quartz {
+                        Toggle("This was a battery replacement", isOn: $isBatteryReplacement)
+                    }
                 } header: {
                     SectionHeader("Service")
                 }
@@ -774,10 +820,16 @@ private struct AddServiceRecordView: View {
             datePerformed: datePerformed,
             serviceType: serviceType.trimmingCharacters(in: .whitespaces),
             accuracyDeltaSPD: accuracyDeltaSPD ?? 0,
+            isBatteryReplacement: isBatteryReplacement,
             watch: watch
         )
         modelContext.insert(record)
         NotificationManager.scheduleServiceDueReminder(for: watch, isUnlocked: isUnlocked)
+        // A battery replacement changes a quartz watch's powerReserveExpiresAt — harmless
+        // no-op reschedule when isBatteryReplacement is false.
+        if isBatteryReplacement {
+            NotificationManager.schedulePowerReserveDepletedReminder(for: watch, isUnlocked: isUnlocked)
+        }
         dismiss()
     }
 }

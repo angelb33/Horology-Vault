@@ -38,6 +38,7 @@ struct DataBackupManagerTests {
         let windDate = Date(timeIntervalSince1970: 4_000_000)
         let dropOffDate = Date(timeIntervalSince1970: 5_000_000)
         let expectedPickupDate = Date(timeIntervalSince1970: 5_500_000)
+        let batteryReplacementDate = Date(timeIntervalSince1970: 6_000_000)
 
         let watch = Watch(
             brand: "Omega",
@@ -51,6 +52,7 @@ struct DataBackupManagerTests {
             movementType: .automatic,
             powerReserveHours: 55,
             windReminderLeadTimeHours: 6,
+            batteryLifeMonths: 24,
             serialNumber: "12345678",
             caliber: "8800",
             caseMaterial: "Stainless Steel",
@@ -71,6 +73,10 @@ struct DataBackupManagerTests {
         watch.maintenanceNotes = "Left for full service and movement overhaul"
         sourceContext.insert(watch)
         sourceContext.insert(WindLog(dateWound: windDate, watch: watch))
+        sourceContext.insert(ServiceRecord(
+            datePerformed: batteryReplacementDate, serviceType: "Battery Replacement",
+            accuracyDeltaSPD: 0, isBatteryReplacement: true, watch: watch
+        ))
 
         let data = try DataBackupManager.exportEncryptedBackup(context: sourceContext, passphrase: "test-passphrase")
 
@@ -91,6 +97,7 @@ struct DataBackupManagerTests {
         #expect(restored.movementType == .automatic)
         #expect(restored.powerReserveHours == 55)
         #expect(restored.windReminderLeadTimeHours == 6)
+        #expect(restored.batteryLifeMonths == 24)
         #expect(restored.serviceIntervalYears == 4)
         #expect(restored.isServiceDueReminderEnabled == false)
         #expect(restored.isWindReminderEnabled == true)
@@ -107,6 +114,10 @@ struct DataBackupManagerTests {
         #expect(restored.appraisalDate == appraisalDate)
         #expect(restored.windLogs.count == 1)
         #expect(restored.windLogs.first?.dateWound == windDate)
+        #expect(restored.serviceRecords.count == 1)
+        #expect(restored.serviceRecords.first?.isBatteryReplacement == true)
+        #expect(restored.serviceRecords.first?.datePerformed == batteryReplacementDate)
+        #expect(restored.lastBatteryReplacementDate == batteryReplacementDate)
         #expect(restored.maintenanceDropOffDate == dropOffDate)
         #expect(restored.maintenanceExpectedPickupDate == expectedPickupDate)
         #expect(restored.maintenanceNotes == "Left for full service and movement overhaul")

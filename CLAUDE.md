@@ -857,6 +857,67 @@ still fits there. `battery.0`'s existence was verified the established way (a th
 install-via-`simctl`-and-screenshot technique used earlier this session (a temporary seeded depleted demo
 watch, not committed) — the badge now renders as a clear red empty-battery icon rather than a speedometer.
 Pure icon swap, no logic touched, no new tests; both platforms build clean.
+**A real feature gap was closed the same day, at the user's request: quartz watches now participate in power
+reserve tracking.** Previously `Watch.lastPoweredDate` unconditionally returned `nil` for `.quartz` — a
+deliberate scope cut when Winding Log shipped (2026-07-17), reasoning that a battery swap was "just a normal
+Service Record," which meant quartz watches got no badge/bar/chart/reminder coverage at all. Brainstormed
+with the user first: the two options discussed were (a) detect battery replacements by string-matching
+`ServiceRecord.serviceType`, rejected once confirmed that field is fully freeform text (no picker/enum) —
+too fragile — or (b) a structured flag, which the user asked to combine with a manual quick-action button
+mirroring "Wind Watch". Implementation: **`ServiceRecord` gained `isBatteryReplacement: Bool?`** (plain
+additive optional, `init` parameter default `nil`) — the single structured source of truth, read via
+`Watch.lastBatteryReplacementDate` (`serviceRecords.filter { $0.isBatteryReplacement ?? false }.map(\.datePerformed).max()`).
+**`Watch` gained `batteryLifeMonths: Int?`**, quartz's analog to `powerReserveHours` — months rather than
+hours, since manufacturer specs (often printed on the case back or in the manual) are typically 12–60
+months, and asking a user to enter "17,520 hours" for "2 years" would be poor UX. Three existing computed
+properties were extended rather than duplicated: `lastPoweredDate`'s `.quartz` case now returns
+`lastBatteryReplacementDate ?? acquisitionDate` (assumes a factory-fresh battery at purchase, same fallback
+`serviceDueDate` already uses for `lastServiceDate`); `powerReserveExpiresAt` now switches on `movementType`
+— manual/automatic still add `powerReserveHours` hours, quartz adds `batteryLifeMonths` months via
+`Calendar.current.date(byAdding: .month, ...)`; `powerReserveRemainingFraction` was refactored to derive
+its fraction purely from `lastPoweredDate`/`powerReserveExpiresAt` (a generic total-duration formula)
+instead of duplicating hours-specific math inline, so it works for quartz without its own movement-type
+branch — the `migration-guardian` agent independently re-derived the algebra and confirmed this refactor is
+exactly equivalent to the old formula for the pre-existing manual/automatic case. Because these are all
+shared computed properties, `WatchCardView`'s badge/bar, `NotificationsPanelView`, and every Insights chart
+that reads them (Power Reserve, Depleted Watches) picked up quartz support with zero changes of their own —
+exactly the "reuse existing infrastructure" reasoning the user's brainstorm was aiming for. **Two entry
+points feed the same flag, so there's exactly one clock, not two that could disagree:** a new **"Battery
+Replaced" button** in `WatchDetailView`'s Power Reserve section (shown instead of "Wind Watch" when
+`movementType == .quartz`, mirroring `logWindNow()`'s shape) inserts a minimal flagged `ServiceRecord`
+(`serviceType: "Battery Replacement"`, `accuracyDeltaSPD: 0`) without the full form — it shows up in
+Service History automatically, so no separate log list was added to the Power Reserve section for quartz,
+unlike the WindLog list manual/automatic watches show there. The full **"Log Service…" form
+(`AddServiceRecordView`) gained a "This was a battery replacement" toggle**, shown only when
+`watch.movementType == .quartz`, for when a fuller write-up (notes, accuracy delta) should also reset the
+clock. `VaultGridView`'s long-press quick-action menu gained a matching "Battery Replaced" action
+(`battery.100` icon, existence verified the established way) alongside the existing "Wind Watch" one.
+`AddWatchView`'s Movement section gained a quartz-only "Battery Life (months)" field (mirroring "Power
+Reserve"'s hours field), with `effectiveBatteryLifeMonths` clearing it if the user switches away from
+quartz — same pattern `effectivePowerReserveHours` already established for the opposite movement types.
+**Scope boundary, decided deliberately:** "Power Reserve Low Reminder" (the hours-based lead-time warning)
+stays manual/automatic-only — quartz has no lead-time input field in this pass, so `windReminderDate` simply
+never resolves for quartz watches, nothing to gate further. "Power Reserve Empty Reminder" (fires exactly at
+depletion, no lead time needed) *does* now extend to quartz, since it needs nothing quartz doesn't already
+have — `WatchDetailView`'s Reminders section toggle visibility was widened from `.manual || .automatic` to
+`movementType != nil` for that one toggle specifically, so the UI doesn't hide a reminder that's actually
+now scheduling. `DataBackupManager`'s `WatchBackup`/`ServiceRecordBackup` DTOs were extended immediately for
+both new fields (`batteryLifeMonths`, `isBatteryReplacement`) — applying the lesson from a previous gap in
+this same file rather than letting it reopen — and the existing round-trip test
+(`DataBackupManagerTests.swift`) was extended to cover both, including asserting `lastBatteryReplacementDate`
+resolves correctly post-restore. `WatchModelTests.swift`'s old "For a quartz movement, lastPoweredDate is
+always nil" test no longer described real behavior and was replaced with tests for the new fallback/
+battery-replacement-log behavior, plus new coverage for `lastBatteryReplacementDate`, quartz
+`powerReserveExpiresAt`/`isPowerReserveDepleted`/`powerReserveRemainingFraction`. The `migration-guardian`
+agent reviewed the schema change proactively before finalizing (per this file's established practice) and
+verified both new properties are safely additive optionals needing no migration, the backup DTOs correctly
+round-trip both fields (read the code directly, not assumed), and the fraction-formula refactor is
+algebraically identical to the old one for existing watches. Visually confirmed end-to-end via the
+install-via-`simctl`-and-screenshot technique (a temporary seeded quartz demo watch with a 24-month battery
+life and a 3-year-old flagged replacement record, not committed): the Vault card correctly showed the red
+depleted badge, proving the full chain (`ServiceRecord` flag → `lastBatteryReplacementDate` →
+`lastPoweredDate` → `powerReserveExpiresAt` → `isPowerReserveDepleted` → `WatchCardView`) works end-to-end.
+Both platforms build clean and the full test suite (123 tests) passes.
 
 ## Common commands
 
@@ -1058,7 +1119,13 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   watch sitting in a winder box — not worn, not explicitly logged as wound — has no signal the app can see,
   so it can read as falsely depleted; this is accepted, not a bug to fix. Quartz movements deliberately got
   no new schema at all — a battery swap is just a normal `ServiceRecord` with `serviceType` "Battery
-  Replacement" (already free text), reusing existing infra instead of a parallel system. UI: `AddWatchView`
+  Replacement" (already free text), reusing existing infra instead of a parallel system. **This quartz
+  scope cut was later reversed** (see the "quartz watches now participate in power reserve tracking"
+  paragraph earlier in this file) — `serviceType` free text turned out too fragile to detect reliably, so
+  `ServiceRecord` gained a structured `isBatteryReplacement: Bool?` flag and `Watch` gained
+  `batteryLifeMonths: Int?`/`lastBatteryReplacementDate`, making `lastPoweredDate`/`powerReserveExpiresAt`
+  quartz-aware too; this bullet is left as-is otherwise for historical accuracy about what shipped in Phase
+  14 itself. UI: `AddWatchView`
   gained a "Movement" section (type picker; the power-reserve-hours field only shows for manual/automatic
   and is cleared via `effectivePowerReserveHours` if the user switches away from those), `WatchDetailView`
   gained a "Power Reserve" section (Wind Watch button, relative-date status text via
