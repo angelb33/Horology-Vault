@@ -775,6 +775,32 @@ reads clearly next to the renamed reminders it can resolve. The "Wind Watch" but
 left unchanged — it names an action on the watch (winding it), not a reminder, so it wasn't part of the
 inconsistency being fixed. Pure copy change, no schema/logic touched; both platforms build clean, no new
 tests needed (nothing computational changed).
+**A real navigation regression from the prior session's sidebar rework was found and fixed the same day,
+reported directly by the user testing on an iPhone device:** tapping a sidebar row (Vault, Insights, etc.)
+updated the selection internally but never actually opened that section's detail view. Root cause:
+2026-07-18's sidebar-selection change (see the "Sidebar row *selection* is custom-painted" Architecture
+bullet) replaced the native `List(Section.allCases, selection: $selection) { ... }` with plain `Button`s
+that just mutate `@State private var selection` — necessary for the accent-color highlight fix, but it also
+silently dropped a piece of `List(selection:)`-specific behavior: on compact-width devices (iPhone),
+`NavigationSplitView` only auto-swaps its single visible column from sidebar to detail when driven by a
+native `List` selection binding, not by an arbitrary `@State` change from a plain `Button`. This was
+invisible on macOS (this project's primary dev/test platform) because macOS `NavigationSplitView` shows
+both columns side by side regardless, so nothing ever needed to "swap" — the same reason the original
+accent-color regression only surfaced days later, on real device testing rather than a build. Fixed in
+`ContentView.swift`: `splitView`'s `NavigationSplitView` now takes an explicit
+`@State private var columnVisibility: NavigationSplitViewVisibility = .automatic` binding, and a new
+`selectSection(_:)` method (replacing the inline `selection = section` in each row's `Button` action) also
+sets `columnVisibility = .detailOnly` whenever `@Environment(\.horizontalSizeClass) == .compact` — i.e. only
+on iPhone; iPad/Mac stay `.automatic` since both already show sidebar + detail together and forcing
+`.detailOnly` there would hide the sidebar entirely, which isn't wanted. `NavigationSplitView`'s own back
+button then returns `columnVisibility` to showing the sidebar again on iPhone, same as it always has for
+column-visibility-driven split views — no extra code needed for that direction. `moveSidebarSelection` (the
+macOS-only arrow-key handler) was left calling `selection = ...` directly, since `#if os(macOS)` already
+means compact-width never applies there. Pure navigation-wiring fix, no model/business logic touched, no
+new tests (this is UI interaction behavior, same category as the rest of this app's untested SwiftUI glue);
+both platforms build clean. **Still needs the user's own on-device retest to confirm this actually fixes
+it**, per this project's standing sandbox limitation (no Screen Recording/Apple Events permission) that's
+kept every other UI fix in this file "build-clean-but-unverified" until manually confirmed.
 
 ## Common commands
 
@@ -863,7 +889,18 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   `#if os(macOS)`-gated `.focusable()` + `.onMoveCommand(perform: moveSidebarSelection)` — `onMoveCommand`/
   `MoveCommandDirection` are macOS/tvOS-only, so don't remove that `#if` guard or it breaks the iOS build.
   If a future session needs to change sidebar row appearance/selection again, this Button-based
-  reimplementation (not a native `List(selection:)`) is the current source of truth. **Appearance
+  reimplementation (not a native `List(selection:)`) is the current source of truth. **This Button-based
+  swap also silently broke iPhone navigation, fixed 2026-07-18 (still needs the user's on-device retest):**
+  dropping `List(selection:)` also dropped the automatic single-column-swap-to-detail behavior
+  `NavigationSplitView` gives you for free on compact-width (iPhone) devices when a native List selection
+  binding drives it — a plain `Button` mutating `@State` doesn't trigger that swap, so tapping a sidebar row
+  updated `selection` but the screen never left the sidebar. `ContentView` now holds an explicit
+  `@State private var columnVisibility: NavigationSplitViewVisibility = .automatic` passed to
+  `NavigationSplitView(columnVisibility:)`, and a new `selectSection(_:)` method sets
+  `columnVisibility = .detailOnly` whenever `@Environment(\.horizontalSizeClass) == .compact` (iPhone only —
+  iPad/Mac stay `.automatic` since both already show sidebar + detail side by side, and forcing `.detailOnly`
+  there would hide the sidebar). The native back button then restores `columnVisibility` on iPhone with no
+  extra code. **Appearance
   switching (Light/Dark/System) has a known, still-unverified fix as of 2026-07-17** — see the "Known issue"
   bullet near the end of this list before touching `ContentView`'s `.preferredColorScheme`/`.id(...)` setup.
 - **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,

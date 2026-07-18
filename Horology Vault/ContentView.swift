@@ -39,9 +39,11 @@ struct ContentView: View {
     }
 
     @State private var selection: Section? = .vault
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var purchaseManager = PurchaseManager()
     @State private var isShowingNotifications = false
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query private var watches: [Watch]
     @Query private var entitlements: [Entitlements]
 
@@ -120,11 +122,11 @@ struct ContentView: View {
     /// was working around a stuck-appearance bug that's now fixed at the source by
     /// `effectiveColorScheme` never passing `nil` to `.preferredColorScheme` on macOS.
     private var splitView: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List {
                 ForEach(Section.allCases) { section in
                     Button {
-                        selection = section
+                        selectSection(section)
                     } label: {
                         Label {
                             Text(section.rawValue)
@@ -178,6 +180,20 @@ struct ContentView: View {
             case .settings:
                 SettingsView()
             }
+        }
+    }
+
+    /// Sets the sidebar selection and, on compact-width devices (iPhone), forces the
+    /// `NavigationSplitView` to swap its single visible column over to the detail side.
+    /// `List(selection:)`'s native selection binding used to do this transition automatically;
+    /// replacing it with plain `Button`s (see `splitView`'s doc comment, for accent-color
+    /// tinting) meant tapping a row updated `selection` but never told the split view to
+    /// navigate — invisible on macOS, where both columns already show side by side regardless of
+    /// `columnVisibility`, but a real bug on iPhone, where nothing ever left the sidebar screen.
+    private func selectSection(_ section: Section) {
+        selection = section
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
         }
     }
 
