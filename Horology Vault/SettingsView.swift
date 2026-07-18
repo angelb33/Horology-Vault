@@ -374,12 +374,12 @@ struct SettingsView: View {
                         Text("\(years) Year\(years == 1 ? "" : "s")").tag(years)
                     }
                 }
-                Toggle("Wind Reminders", isOn: $isWindReminderEnabled)
-                Toggle("Power Reserve Depleted Reminders", isOn: $isPowerReserveDepletedReminderEnabled)
+                Toggle("Power Reserve Low Reminders", isOn: $isWindReminderEnabled)
+                Toggle("Power Reserve Empty Reminders", isOn: $isPowerReserveDepletedReminderEnabled)
             } header: {
                 SectionHeader("Reminders")
             } footer: {
-                Text("These are app-wide master switches — turning one off silences that reminder for every watch, and turning it back on restores each watch's own choice. Each watch also has its own Reminders section (with its own interval override) on its page. Wind Reminders need a movement type, power reserve, and reminder lead time set per watch in Edit Watch; Power Reserve Depleted Reminders only need a movement type and power reserve — no lead time, since it fires at depletion itself rather than before it.")
+                Text("These are app-wide master switches — turning one off silences that reminder for every watch, and turning it back on restores each watch's own choice. Each watch also has its own Reminders section (with its own interval override) on its page. Power Reserve Low Reminders need a movement type, power reserve, and reminder lead time set per watch in Edit Watch; Power Reserve Empty Reminders only need a movement type and power reserve — no lead time, since it fires when the reserve actually runs out rather than before it.")
             }
         } else {
             Section {

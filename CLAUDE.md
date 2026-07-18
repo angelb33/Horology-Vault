@@ -752,6 +752,29 @@ planned features are genuine differentiators (Fit Calculator, strap affiliate re
 stakes everyone already has (wear tracking, service history, wishlist); Section 10 of the monetization plan
 summarizes that review and the roadmap changes it drove (V2 leads with Strap Recommendations, Cloud Sync
 flagged as a weak subscription pillar since competitors give it away free).
+The reminder-naming discussion left open from the prior session (2026-07-17) was resolved and shipped
+2026-07-18: **"Wind Reminder" → "Power Reserve Low"** and **"Power Reserve Depleted" → "Power Reserve Empty"**,
+a display-strings-only rename (per explicit user choice — the underlying Swift identifiers
+`isWindReminderEnabled`, `scheduleWindReminder`, `resolvedWindReminderDate`,
+`isPowerReserveDepletedReminderEnabled`, `schedulePowerReserveDepletedReminder`, etc., plus every
+`UserDefaults`/backup key, were all deliberately left unchanged — only what the user sees was touched, so
+there was no key-migration risk). Both names now share a "Power Reserve" prefix and differ only by state
+(Low = advance warning before it runs out, Empty = fires at the moment it actually does), instead of the
+old asymmetric "Wind Reminder" (named after the winding action, not the outcome) vs. "Power Reserve
+Depleted" pairing that made the two easy to confuse. Updated everywhere the strings appeared:
+`SettingsView`'s two master-switch `Toggle` labels and footer, `WatchDetailView`'s per-watch `Toggle`
+labels and its dynamic "which switches are off" footer list, `AddWatchView`'s `LabeledContent`/validation-
+warning `Label`/footer text in the Movement section, and the actual `UNMutableNotificationContent.title`
+strings in `NotificationManager.scheduleWindReminder`/`schedulePowerReserveDepletedReminder` (so the
+notification banner itself, not just in-app settings, uses the new names) — plus a couple of doc-comment
+mentions of the old display name in `NotificationManager`'s header comment. **Also renamed as part of the
+same consistency pass, per explicit user request:** the Wear Log quick-action button **"Log Today" →
+"Log Wear"**, in both `WatchDetailView`'s Wear Log section and `VaultGridView`'s long-press context menu —
+now symmetric with the existing "Log Service…" and "Wind Watch" button labels (verb + what's logged), and
+reads clearly next to the renamed reminders it can resolve. The "Wind Watch" button itself was intentionally
+left unchanged — it names an action on the watch (winding it), not a reminder, so it wasn't part of the
+inconsistency being fixed. Pure copy change, no schema/logic touched; both platforms build clean, no new
+tests needed (nothing computational changed).
 
 ## Common commands
 

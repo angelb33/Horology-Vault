@@ -215,9 +215,9 @@ struct WatchDetailView: View {
                 }
                 .disabled(!isServiceDueReminderEnabledGlobally)
                 if watch.movementType == .manual || watch.movementType == .automatic {
-                    Toggle("Wind Reminder", isOn: windReminderEnabledBinding)
+                    Toggle("Power Reserve Low Reminder", isOn: windReminderEnabledBinding)
                         .disabled(!isWindReminderEnabledGlobally)
-                    Toggle("Power Reserve Depleted Reminder", isOn: powerReserveDepletedReminderEnabledBinding)
+                    Toggle("Power Reserve Empty Reminder", isOn: powerReserveDepletedReminderEnabledBinding)
                         .disabled(!isPowerReserveDepletedReminderEnabledGlobally)
                 }
             } header: {
@@ -228,8 +228,8 @@ struct WatchDetailView: View {
                 let disabledGlobally: [String] = {
                     var names: [String] = []
                     if !isServiceDueReminderEnabledGlobally { names.append("Service Due") }
-                    if !isWindReminderEnabledGlobally { names.append("Wind") }
-                    if !isPowerReserveDepletedReminderEnabledGlobally { names.append("Power Reserve Depleted") }
+                    if !isWindReminderEnabledGlobally { names.append("Power Reserve Low") }
+                    if !isPowerReserveDepletedReminderEnabledGlobally { names.append("Power Reserve Empty") }
                     return names
                 }()
                 if !disabledGlobally.isEmpty {
@@ -410,7 +410,7 @@ struct WatchDetailView: View {
 
     private var wearLogSection: some View {
         Section {
-            Button("Log Today") { logWearToday() }
+            Button("Log Wear") { logWearToday() }
 
             ForEach(watch.wearLogs.sorted(by: { $0.dateWorn > $1.dateWorn })) { entry in
                 VStack(alignment: .leading) {

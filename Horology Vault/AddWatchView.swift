@@ -286,7 +286,7 @@ struct AddWatchView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                LabeledContent("Wind Reminder") {
+                LabeledContent("Power Reserve Low Reminder") {
                     HStack(spacing: 4) {
                         TextField("0", value: $windReminderLeadTimeHours, format: .number)
                             .multilineTextAlignment(.trailing)
@@ -304,12 +304,12 @@ struct AddWatchView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if movementType == .manual || movementType == .automatic {
-                    Text("Power Reserve is how many hours the mainspring runs before needing winding again. Wind Reminder is how long before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked.")
+                    Text("Power Reserve is how many hours the mainspring runs before needing winding again. Power Reserve Low Reminder is how long before it runs out you'd like to be warned — leaving it blank means no notification will ever fire for this watch, even once unlocked.")
                 } else if movementType == .quartz {
                     Text("Quartz watches run on a battery, not a wind — there's nothing to track here. Log a battery replacement as a normal service record instead.")
                 }
                 if !isWindReminderLeadTimeValid {
-                    Label("Wind Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Power Reserve Low Reminder must be less than Power Reserve — a reminder that fires at or after the watch is already depleted isn't useful.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
                 // Power reserve and the reminder lead time are always free to enter — see

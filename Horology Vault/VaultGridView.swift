@@ -72,7 +72,7 @@ struct VaultGridView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    Button("Log Today", systemImage: "checkmark.circle") {
+                                    Button("Log Wear", systemImage: "checkmark.circle") {
                                         logWearToday(for: watch)
                                     }
                                     if watch.movementType == .manual || watch.movementType == .automatic {
@@ -132,7 +132,7 @@ struct VaultGridView: View {
         }
     }
 
-    /// Quicker access to Wear Log's "Log Today" action (normally reached via `WatchDetailView`'s
+    /// Quicker access to Wear Log's "Log Wear" action (normally reached via `WatchDetailView`'s
     /// Wear Log section) directly from the Vault grid's context menu, same insert as `logWearToday()`
     /// there.
     private func logWearToday(for watch: Watch) {

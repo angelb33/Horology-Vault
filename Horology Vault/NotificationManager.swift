@@ -9,16 +9,17 @@ import Foundation
 import SwiftData
 import UserNotifications
 
-/// Schedules and cancels four local reminder notifications for a `Watch`: Service Due, Wind
-/// (an advance warning before power reserve runs out), Power Reserve Depleted (fires at the
-/// moment it actually runs out — distinct from Wind, see that function's doc comment), and
-/// Pickup (a one-off maintenance appointment reminder, see its own doc comment for why it's
+/// Schedules and cancels four local reminder notifications for a `Watch`: Service Due, Power
+/// Reserve Low (an advance warning before power reserve runs out — internally still the "Wind"
+/// reminder fields/functions, only the user-facing name changed), Power Reserve Empty (fires at the
+/// moment it actually runs out — distinct from Power Reserve Low, see that function's doc comment),
+/// and Pickup (a one-off maintenance appointment reminder, see its own doc comment for why it's
 /// scoped differently from the other three). All four are gated behind `isUnlocked` (the app's
 /// one-time lifetime-unlock entitlement) — callers pass their own `Entitlements
 /// .isLifetimeUnlocked` read rather than this static enum querying SwiftData itself, matching
 /// how `ScheduledBackupManager` takes its gating input from the caller instead of reaching into
 /// `@AppStorage`/`@Query` directly. No backend involved either way — this is a V1, fully-local
-/// feature per the monetization plan. Service Due, Wind, and Power Reserve Depleted each have
+/// feature per the monetization plan. Service Due, Power Reserve Low, and Power Reserve Empty each have
 /// enable/disable toggles with two layers: an app-wide master switch in Settings
 /// (`UserDefaults.standard`, the same store `@AppStorage` there reads/writes, since a static enum
 /// can't hold `@AppStorage` itself — same pattern as `ScheduledBackupManager`'s keys), and a
@@ -117,7 +118,7 @@ enum NotificationManager {
         ) else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Wind Reminder"
+        content.title = "Power Reserve Low"
         content.body = "\(watch.brand) \(watch.model)'s power reserve is about to run out — time to wind it."
         content.sound = .default
 
@@ -134,7 +135,7 @@ enum NotificationManager {
             .removePendingNotificationRequests(withIdentifiers: [windReminderIdentifier(for: watch)])
     }
 
-    /// Distinct from Wind Reminder: Wind Reminder is an *advance* warning (fires before
+    /// Distinct from Power Reserve Low: Power Reserve Low is an *advance* warning (fires before
     /// depletion, based on a user-set lead time, and does nothing if that lead time was never
     /// set); this one fires at the moment of depletion itself — a definitive "it's out now"
     /// nudge that doesn't depend on the user having configured a lead time at all. Same
@@ -165,7 +166,7 @@ enum NotificationManager {
         ) else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Power Reserve Depleted"
+        content.title = "Power Reserve Empty"
         content.body = "\(watch.brand) \(watch.model)'s power reserve has run out — time to wind it."
         content.sound = .default
 
