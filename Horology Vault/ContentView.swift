@@ -39,11 +39,9 @@ struct ContentView: View {
     }
 
     @State private var selection: Section? = .vault
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var purchaseManager = PurchaseManager()
     @State private var isShowingNotifications = false
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Query private var watches: [Watch]
     @Query private var entitlements: [Entitlements]
 
@@ -122,45 +120,17 @@ struct ContentView: View {
     /// was working around a stuck-appearance bug that's now fixed at the source by
     /// `effectiveColorScheme` never passing `nil` to `.preferredColorScheme` on macOS.
     private var splitView: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            List {
-                ForEach(Section.allCases) { section in
-                    Button {
-                        selectSection(section)
-                    } label: {
-                        Label {
-                            Text(section.rawValue)
-                        } icon: {
-                            Image(systemName: section.systemImage)
-                                .foregroundStyle(accentColorOption.color)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+        NavigationSplitView {
+            sidebarList
+                .navigationTitle("Horology Vault")
+                #if os(macOS)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        notificationsBellButton
                     }
-                    .buttonStyle(.plain)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(section == selection ? accentColorOption.color.opacity(0.25) : Color.clear)
-                            .padding(.horizontal, 6)
-                    )
-                    .listRowBackground(Color.clear)
                 }
-            }
-            #if os(macOS)
-            .focusable()
-            .onMoveCommand(perform: moveSidebarSelection)
-            #endif
-            .navigationTitle("Horology Vault")
-            #if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    notificationsBellButton
-                }
-            }
         } detail: {
             switch selection {
             case .vault, nil:
@@ -183,28 +153,68 @@ struct ContentView: View {
         }
     }
 
-    /// Sets the sidebar selection and, on compact-width devices (iPhone), forces the
-    /// `NavigationSplitView` to swap its single visible column over to the detail side.
-    /// `List(selection:)`'s native selection binding used to do this transition automatically;
-    /// replacing it with plain `Button`s (see `splitView`'s doc comment, for accent-color
-    /// tinting) meant tapping a row updated `selection` but never told the split view to
-    /// navigate — invisible on macOS, where both columns already show side by side regardless of
-    /// `columnVisibility`, but a real bug on iPhone, where nothing ever left the sidebar screen.
-    private func selectSection(_ section: Section) {
-        selection = section
-        if horizontalSizeClass == .compact {
-            columnVisibility = .detailOnly
+    /// macOS gets a hand-painted selection highlight (see the doc comment below on why); every
+    /// other platform uses a native `List(selection:)`. That's not just less code — it's load
+    /// bearing: on iPhone, `NavigationSplitView` only auto-collapses its single visible column
+    /// from sidebar to detail when the tap comes through a native `List` selection binding.
+    /// Setting `columnVisibility` programmatically from a plain `Button`'s action (tried first,
+    /// see git history) updates the state correctly but never triggers that collapse — confirmed
+    /// with a throwaway XCUITest that dumped the accessibility tree and a screenshot after a
+    /// synthesized tap: `selection`/`columnVisibility` both updated, the screen never moved.
+    /// `List(selection:)` is the only mechanism iOS/iPadOS/visionOS were ever observed to respect
+    /// for this transition, so it stays native there.
+    @ViewBuilder
+    private var sidebarList: some View {
+        #if os(macOS)
+        List {
+            ForEach(Section.allCases) { section in
+                Button {
+                    selection = section
+                } label: {
+                    Label {
+                        Text(section.rawValue)
+                    } icon: {
+                        Image(systemName: section.systemImage)
+                            .foregroundStyle(accentColorOption.color)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(section == selection ? accentColorOption.color.opacity(0.25) : Color.clear)
+                        .padding(.horizontal, 6)
+                )
+                .listRowBackground(Color.clear)
+            }
         }
+        .focusable()
+        .onMoveCommand(perform: moveSidebarSelection)
+        #else
+        List(Section.allCases, selection: $selection) { section in
+            Label {
+                Text(section.rawValue)
+            } icon: {
+                Image(systemName: section.systemImage)
+                    .foregroundStyle(accentColorOption.color)
+            }
+            .tag(section)
+        }
+        #endif
     }
 
-    /// Drives arrow-key navigation through the sidebar. The sidebar rows are plain `Button`s
-    /// rather than a native `List(selection:)` (see `splitView`'s custom inset `.background`) so
-    /// the selection highlight can use the user's chosen accent color — `.sidebar`-style
+    /// Drives arrow-key navigation through the sidebar. Only needed on macOS, where the sidebar
+    /// rows are plain `Button`s rather than a native `List(selection:)` (see `sidebarList`'s doc
+    /// comment) so the selection highlight can use the user's chosen accent color — `.sidebar`-style
     /// `List(selection:)` always paints its native highlight with the system accent-color
-    /// preference, which no public SwiftUI tint modifier can override. Losing the native
-    /// selection wiring also loses its built-in arrow-key handling, so this replaces it manually.
-    /// `onMoveCommand`/`MoveCommandDirection` are macOS/tvOS-only APIs, hence the `#if os(macOS)`
-    /// both here and at the `splitView` call site.
+    /// preference on macOS specifically (NSTableView/NSOutlineView chrome), which no public
+    /// SwiftUI tint modifier can override. Losing the native selection wiring also loses its
+    /// built-in arrow-key handling, so this replaces it manually. `onMoveCommand`/
+    /// `MoveCommandDirection` are macOS/tvOS-only APIs, hence the `#if os(macOS)` both here and at
+    /// the `sidebarList` call site.
     #if os(macOS)
     private func moveSidebarSelection(_ direction: MoveCommandDirection) {
         let cases = Section.allCases

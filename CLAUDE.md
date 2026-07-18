@@ -776,31 +776,52 @@ left unchanged — it names an action on the watch (winding it), not a reminder,
 inconsistency being fixed. Pure copy change, no schema/logic touched; both platforms build clean, no new
 tests needed (nothing computational changed).
 **A real navigation regression from the prior session's sidebar rework was found and fixed the same day,
-reported directly by the user testing on an iPhone device:** tapping a sidebar row (Vault, Insights, etc.)
-updated the selection internally but never actually opened that section's detail view. Root cause:
-2026-07-18's sidebar-selection change (see the "Sidebar row *selection* is custom-painted" Architecture
-bullet) replaced the native `List(Section.allCases, selection: $selection) { ... }` with plain `Button`s
-that just mutate `@State private var selection` — necessary for the accent-color highlight fix, but it also
-silently dropped a piece of `List(selection:)`-specific behavior: on compact-width devices (iPhone),
-`NavigationSplitView` only auto-swaps its single visible column from sidebar to detail when driven by a
-native `List` selection binding, not by an arbitrary `@State` change from a plain `Button`. This was
-invisible on macOS (this project's primary dev/test platform) because macOS `NavigationSplitView` shows
-both columns side by side regardless, so nothing ever needed to "swap" — the same reason the original
-accent-color regression only surfaced days later, on real device testing rather than a build. Fixed in
-`ContentView.swift`: `splitView`'s `NavigationSplitView` now takes an explicit
-`@State private var columnVisibility: NavigationSplitViewVisibility = .automatic` binding, and a new
-`selectSection(_:)` method (replacing the inline `selection = section` in each row's `Button` action) also
-sets `columnVisibility = .detailOnly` whenever `@Environment(\.horizontalSizeClass) == .compact` — i.e. only
-on iPhone; iPad/Mac stay `.automatic` since both already show sidebar + detail together and forcing
-`.detailOnly` there would hide the sidebar entirely, which isn't wanted. `NavigationSplitView`'s own back
-button then returns `columnVisibility` to showing the sidebar again on iPhone, same as it always has for
-column-visibility-driven split views — no extra code needed for that direction. `moveSidebarSelection` (the
-macOS-only arrow-key handler) was left calling `selection = ...` directly, since `#if os(macOS)` already
-means compact-width never applies there. Pure navigation-wiring fix, no model/business logic touched, no
-new tests (this is UI interaction behavior, same category as the rest of this app's untested SwiftUI glue);
-both platforms build clean. **Still needs the user's own on-device retest to confirm this actually fixes
-it**, per this project's standing sandbox limitation (no Screen Recording/Apple Events permission) that's
-kept every other UI fix in this file "build-clean-but-unverified" until manually confirmed.
+reported directly by the user testing on an iPhone device, and this time actually verified end-to-end
+in-session** (a first for this project — see below for how the sandbox's usual no-Screen-Recording/
+Apple-Events limitation was worked around): tapping a sidebar row (Vault, Insights, etc.) updated the
+selection internally but never actually opened that section's detail view. Root cause: 2026-07-18's
+sidebar-selection change (see the "Sidebar row *selection* is custom-painted" Architecture bullet) replaced
+the native `List(Section.allCases, selection: $selection) { ... }` with plain `Button`s that just mutate
+`@State private var selection` — done to fix a real macOS-only cosmetic bug (native `List(selection:)`
+paints its row highlight in the system accent color, ignoring `.tint()`, on macOS's NSTableView/
+NSOutlineView chrome specifically) — but it silently dropped a piece of `List(selection:)`-specific behavior
+that has nothing to do with macOS: on compact-width devices (iPhone), `NavigationSplitView` only
+auto-collapses its single visible column from sidebar to detail when the tap comes through a native `List`
+selection binding, never from an arbitrary `@State` mutation, however it's triggered. Invisible on macOS
+(this project's primary dev/test platform, which shows both columns side by side regardless), so it slipped
+through the same way the original accent-color bug did in the other direction.
+**First fix attempt (wrong, disproven in-session):** added an explicit `columnVisibility:
+NavigationSplitViewVisibility` binding and set it to `.detailOnly` on tap when `@Environment
+(\.horizontalSizeClass) == .compact`, following what's widely documented online as the standard technique.
+Built clean, but a throwaway XCUITest (`Horology VaultUITests`, added temporarily, not committed) proved
+this doesn't actually work in this SwiftUI/iOS version: it launched the app in iOS Simulator, tapped the
+"Insights" row via `XCUIApplication`, and inspected both the accessibility tree and a screenshot afterward —
+`selection` and `columnVisibility` both updated correctly (confirmed via a temporary debug overlay reading
+their live values), yet the visible screen never left the sidebar. This is a valuable general finding for
+this project: **XCUITest can drive and screenshot the iOS Simulator without needing the Screen Recording/
+Apple Events permission this sandbox otherwise lacks** — `xcodebuild test -resultBundlePath`, then
+`xcrun xcresulttool export attachments --test-id ... --output-path ...` to pull out `XCTAttachment`
+screenshots/text as real files this environment can view — a way to actually close the loop on UI bugs
+in-session instead of shipping "build-clean-but-unverified," worth reusing for future UI regressions instead
+of assuming the sandbox limitation is absolute.
+**Real fix, verified working:** the mechanism a `Button` + `columnVisibility` can't replicate turns out to be
+exclusive to native `List(selection:)`, so `ContentView.swift`'s sidebar is now platform-conditional — a new
+`sidebarList` `@ViewBuilder` property, gated `#if os(macOS)`, keeps the existing hand-painted `Button` +
+`RoundedRectangle` highlight (plus its `.focusable()`/`.onMoveCommand` arrow-key restoration) on macOS only,
+where the cosmetic bug actually lives; every other platform (iOS/iPadOS/visionOS) went back to plain
+`List(Section.allCases, selection: $selection) { Label(...).tag(section) }` — the system-accent-color
+highlight bug was never actually demonstrated on iOS (only macOS's AppKit-backed List chrome was), so
+restoring it there costs nothing cosmetically and gets the free auto-collapse-to-detail behavior back
+along with it. The `columnVisibility`/`selectSection`/`horizontalSizeClass` scaffolding from the disproven
+first attempt was fully removed, not left dead in the tree. Verified with the same throwaway XCUITest,
+updated to also pass `-accentColorOption purple` as a launch argument: a screenshot after tapping "Insights"
+from the sidebar shows both the correct destination (Insights' paywall screen, not still the sidebar) *and*
+the purple accent color on its "Unlock Full Version" button — confirming the platform split didn't
+regress the very accent-color fix it's built around. Pure navigation-wiring fix, no model/business logic
+touched, no new unit tests (this is UI interaction behavior — the throwaway XCUITest was deliberately not
+committed, since this project has no established pattern of UI-test coverage yet and one ad hoc diagnostic
+test isn't sufficient reason to start); both platforms build clean and the full test suite (unit + the
+existing placeholder UI tests) passes.
 
 ## Common commands
 
@@ -878,29 +899,31 @@ directives choked on the embedded `"` in the file path) — Canvas Previews shou
   `Label`s use the `Label(title:icon:)` init so only the icon (not the row text) picks up
   `.foregroundStyle(accentColorOption.color)`, matching the Apple Reminders/Notes look — tinting the whole
   sidebar `List` background was tried first and reverted per feedback, so don't reintroduce that. **Sidebar
-  row *selection* is custom-painted, not native, as of 2026-07-18** — `.sidebar`-style `List(selection:)`
-  always paints its row-highlight using the *system* accent-color preference on macOS (NSTableView/
-  NSOutlineView chrome), ignoring `.tint()`/`.listItemTint()` entirely; `ContentView.splitView` no longer
-  uses `List(Section.allCases, selection: $selection) { ... .tag(section) }` at all — it's a
+  row *selection* is platform-conditional as of 2026-07-18** (revised same day after an iPhone navigation
+  regression, see below) — a `.sidebar`-style native `List(selection:)` always paints its row-highlight
+  using the *system* accent-color preference *on macOS specifically* (NSTableView/NSOutlineView chrome),
+  ignoring `.tint()`/`.listItemTint()` entirely; this was never demonstrated on iOS. So
+  `ContentView.sidebarList` (a `@ViewBuilder` property) branches: `#if os(macOS)` keeps a hand-painted
   `List { ForEach(Section.allCases) { section in Button { selection = section } label: { ... } } }` with a
   manually-painted inset `RoundedRectangle` background (`accentColorOption.color.opacity(0.25)`) on the
-  selected row instead, so the highlight tracks the app's own accent-color setting. Dropping the native
-  selection binding also dropped macOS's built-in arrow-key sidebar navigation, restored via
-  `#if os(macOS)`-gated `.focusable()` + `.onMoveCommand(perform: moveSidebarSelection)` — `onMoveCommand`/
-  `MoveCommandDirection` are macOS/tvOS-only, so don't remove that `#if` guard or it breaks the iOS build.
-  If a future session needs to change sidebar row appearance/selection again, this Button-based
-  reimplementation (not a native `List(selection:)`) is the current source of truth. **This Button-based
-  swap also silently broke iPhone navigation, fixed 2026-07-18 (still needs the user's on-device retest):**
-  dropping `List(selection:)` also dropped the automatic single-column-swap-to-detail behavior
-  `NavigationSplitView` gives you for free on compact-width (iPhone) devices when a native List selection
-  binding drives it — a plain `Button` mutating `@State` doesn't trigger that swap, so tapping a sidebar row
-  updated `selection` but the screen never left the sidebar. `ContentView` now holds an explicit
-  `@State private var columnVisibility: NavigationSplitViewVisibility = .automatic` passed to
-  `NavigationSplitView(columnVisibility:)`, and a new `selectSection(_:)` method sets
-  `columnVisibility = .detailOnly` whenever `@Environment(\.horizontalSizeClass) == .compact` (iPhone only —
-  iPad/Mac stay `.automatic` since both already show sidebar + detail side by side, and forcing `.detailOnly`
-  there would hide the sidebar). The native back button then restores `columnVisibility` on iPhone with no
-  extra code. **Appearance
+  selected row, plus `.focusable()` + `.onMoveCommand(perform: moveSidebarSelection)` to restore the
+  built-in arrow-key sidebar navigation that a non-native List loses (`onMoveCommand`/`MoveCommandDirection`
+  are macOS/tvOS-only, so don't remove that `#if` guard or it breaks the iOS build); every other platform
+  (iOS/iPadOS/visionOS) uses plain `List(Section.allCases, selection: $selection) { Label(...).tag(section) }`
+  — fully native, no custom highlight or arrow-key code needed there. **Why it's split this way, not Button
+  everywhere:** an all-platforms Button-based version (2026-07-18's first attempt, briefly shipped) silently
+  broke iPhone navigation — tapping a sidebar row updated `selection` but `NavigationSplitView` never
+  collapsed its single visible column over to the detail side, because that auto-collapse is exclusive to
+  taps landing through a *native* `List` selection binding, not just to `selection` changing by whatever
+  means. A first fix attempt (an explicit `columnVisibility` binding forced to `.detailOnly` on tap when
+  `horizontalSizeClass == .compact`, the commonly-cited technique) was proven **not** to work in this
+  SwiftUI/iOS version via a throwaway XCUITest — state updated correctly, screen never moved — so the actual
+  fix is this platform split, restoring native `List(selection:)` (and its free auto-collapse) everywhere
+  except macOS, where it's genuinely needed to work around the AppKit chrome tinting bug. Verified with the
+  same XCUITest (screenshot after tapping a row, launched with a non-default accent color): navigates to the
+  correct destination *and* keeps the custom accent color. If a future session needs to touch sidebar
+  selection again, this is the current, on-device-verified source of truth — don't reintroduce an
+  all-platforms Button version without re-testing the iPhone collapse behavior specifically. **Appearance
   switching (Light/Dark/System) has a known, still-unverified fix as of 2026-07-17** — see the "Known issue"
   bullet near the end of this list before touching `ContentView`'s `.preferredColorScheme`/`.id(...)` setup.
 - **View hierarchy so far:** sidebar → `VaultGridView` (grid of watches with brand/date/case-size sorting,
