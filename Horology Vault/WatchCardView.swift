@@ -71,7 +71,7 @@ struct WatchCardView: View {
                     // winding now" signal, with the bar (when present) still doing the extra job
                     // of showing exactly how depleted watches got there relative to non-depleted ones.
                     if watch.isPowerReserveDepleted {
-                        Image(systemName: "gauge.with.needle")
+                        Image(systemName: "battery.0")
                             .font(.caption)
                             .padding(6)
                             .background(.red, in: Circle())

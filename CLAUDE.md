@@ -845,6 +845,18 @@ to `false` moments after by the app's real `PurchaseManager.reconcileEntitlement
 would have required fighting Simulator's StoreKit reconciliation rather than a quick diagnostic; the width
 formula change is a one-line, low-risk edit reasoned through instead. Pure UI tweak, no model/business logic
 touched, no new tests; both platforms build clean.
+Immediately after, the user asked whether a better icon existed for that same depleted badge — it had been
+using `gauge.with.needle` (a speedometer, chosen originally just because it read as "power"-adjacent) rather
+than anything that actually looks like an empty battery. Swapped to `battery.0` in both places that render
+it: `WatchCardView`'s badge overlay and `NotificationsPanelView`'s "Out of power" row icon (the same signal
+surfaced in a second place — kept consistent rather than updating only the card). `PowerReserveChartView`'s
+`gauge.with.needle` empty-state icon ("No Power Reserve Data") was deliberately left alone — that one
+represents "no tracking data exists at all," a different concept from "this watch is depleted," so a gauge
+still fits there. `battery.0`'s existence was verified the established way (a throwaway
+`NSImage(systemSymbolName:)` check) before use, and the change was visually confirmed via the same
+install-via-`simctl`-and-screenshot technique used earlier this session (a temporary seeded depleted demo
+watch, not committed) — the badge now renders as a clear red empty-battery icon rather than a speedometer.
+Pure icon swap, no logic touched, no new tests; both platforms build clean.
 
 ## Common commands
 

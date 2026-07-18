@@ -51,7 +51,7 @@ struct NotificationsPanelView: View {
                                     NotificationRow(
                                         watch: watch,
                                         message: "Out of power",
-                                        systemImage: "gauge.with.needle",
+                                        systemImage: "battery.0",
                                         tint: .red
                                     )
                                 }
